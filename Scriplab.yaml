@@ -1,0 +1,534 @@
+# Script Lab Snippet - AI Assistant for Outlook (Compact)
+# Generated: 2026-10-22 11:00:41
+# Features: Summarize Email, Timeline Analysis, CSDQ Review, Custom input
+# Theme: Neumorphism Soft only
+# Import this file in Script Lab: Import > Paste YAML
+#
+# IMPORTANT: Update API_KEY in script section before running!
+#
+---
+name: AI Assistant for Outlook - Compact
+description: 'Compact AI Outlook add-in: Summarize Email, Timeline Analysis, CSDQ Review, Custom request'
+author: Tim Luong
+host: OUTLOOK
+api_set: {}
+script:
+  content: "// ==========================================\n// API CONFIG - Azure OpenAI Responses API (sửa key ở đây khi rotate)\n\
+    // ==========================================\n// IMPORTANT: Thay API_KEY bằng key thực tế trước khi sử dụng. Không commit\
+    \ key thật.\nconst API_KEY = \"APIKEY\";\nconst API_ENDPOINT = \"https://kamezoko.services.ai.azure.com/openai/v1/responses\"\
+    ;\nconst API_DEPLOYMENT = \"gpt-5.6-luna\";\n\n// ==========================================\n// KHAI BÁO KIỂU DỮ LIỆU\n\
+    // ==========================================\n\n// Khai báo kiểu dữ liệu cho Office.js (được load từ thư viện bên ngoài\
+    \ qua index.js)\ndeclare var Office: any;\n\n// Khai báo jQuery (được load từ CDN qua index.js)\ndeclare var $: any;\n\
+    \n\n// ==========================================\n// THEME - Neumorphism Soft (fixed)\n// ==========================================\n\
+    \n$(document).ready(function() {\n  document.body.setAttribute('data-theme', 'neomorphism');\n});\n\n\n// ==========================================\n\
+    // BUTTON EVENT HANDLERS\n// ==========================================\n\n$(\"#summarizeEmailThread\").click(summarizeEmailThread);\
+    \ // Tóm tắt email thread bằng AI\n$(\"#analyzeEmailTimeline\").click(analyzeEmailTimeline); // Phân tích timeline chi\
+    \ tiết (phát hiện idle period 3+ ngày)\n$(\"#generateCsdqReport\").click(generateCsdqReport); // CSDQ Quality Review report\n\
+    $(\"#sendCustomRequest\").click(sendCustomRequest); // Gửi yêu cầu tùy chỉnh với textarea input\n\n// ==========================================\n\
+    // VAI TRÒ HỆ THỐNG (SYSTEM ROLES)\n// ==========================================\n\nlet systemRoles = {\n  // Vai trò\
+    \ Team Manager với mô tả chi tiết về trách nhiệm và thành viên trong nhóm\n  teamManager: `{\n  \"persona\": {\n    \"\
+    name\": \"Tim Luong\",\n    \"role\": \"Team Manager – Microsoft Dynamics 365 Finance & Operations (APAC Region)\",\n\
+    \    \"location\": \"Hanoi, Vietnam\",\n    \"english_level\": \"B2/C1 - Functional and clear, but NOT native\",\n   \
+    \ \"expertise\": \"Microsoft Dynamics 365 F&O across Commerce, Supply Chain, and Finance\",\n    \"summary\": \"Tim Luong\
+    \ is Vietnamese Team Manager living and working in Hanoi, Vietnam. He communicates with business customers using professional,\
+    \ polite, and sincere language. His English is functional and clear (B2/C1 level) but NOT native. His style reflects Vietnamese-English\
+    \ business communication - simple, straightforward, with polite markers like 'Please kindly', 'Regarding', 'Concerning'.\
+    \ He focuses on logical flow (First... Second... Finally...) and avoids complex idioms and native slang. He never uses\
+    \ em dash (—) character in emails. Minor imperfections in articles (the/a/an) or prepositions are acceptable as long as\
+    \ meaning stays clear.\",\n    \"primary_audience\": \"Business customers in APAC region (both first-time and returning)\"\
+    ,\n    \"voice\": \"First-person ('I', 'we') to build trust. Professional but not overly formal.\",\n    \"email_signature\"\
+    : \"Thanks and Best Regards,\\\\nTim Luong\\\\n\\\\nor\\\\n\\\\nBest regards,\\\\nTim Luong\\\\n\\\\nor\\\\n\\\\nThanks,\\\
+    \\nTim Luong\"\n  },\n  \"team_roster\": [\n    {\"name\": \"Noah\", \"email\": \"v-haphan@microsoft.com\", \"role\":\
+    \ \"Tech Lead\", \"specialization\": \"dual-write, performance\"},\n    {\"name\": \"Emma\", \"email\": \"v-thuyp@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"general support\"},\n    {\"name\": \"Adam\", \"email\": \"v-lead@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"general support\"},\n    {\"name\": \"Amy\", \"email\": \"v-huyenguyen@microsoft.com\"\
+    , \"role\": \"Tech Lead\", \"specialization\": \"dual-write, performance\"},\n    {\"name\": \"Alex\", \"email\": \"v-locngoxuan@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"general support\"},\n    {\"name\": \"Nikolas\", \"email\": \"\
+    v-namnghiem@microsoft.com\", \"role\": \"Senior Engineer\", \"specialization\": \"general support\"},\n    {\"name\":\
+    \ \"Michael\", \"email\": \"v-hoangluong@microsoft.com\", \"role\": \"Senior Engineer\", \"specialization\": \"general\
+    \ support\"},\n    {\"name\": \"Celina\", \"email\": \"v-thaongu@microsoft.com\", \"role\": \"Senior Engineer\", \"specialization\"\
+    : \"general support\"},\n    {\"name\": \"Thuy Chu\", \"email\": \"v-thuychuthi@microsoft.com\", \"role\": \"Senior Engineer\"\
+    , \"specialization\": \"Retail\"},\n    {\"name\": \"Heather\", \"email\": \"v-hienpham@microsoft.com\", \"role\": \"\
+    Senior Engineer\", \"specialization\": \"Retail\"},\n    {\"name\": \"Viktor\", \"email\": \"v-nhatvu@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"Retail\"},\n    {\"name\": \"Bruce\", \"email\": \"v-hieut@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"general support\"},\n    {\"name\": \"Skyler\", \"email\": \"v-khannguy@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"general support\"}\n  ],\n  \"name_matching_instructions\": \"\
+    When you see an email address in email thread (e.g., v-nhatvu@microsoft.com), match it with team roster above to use engineer's\
+    \ proper name (e.g., Viktor). Email addresses use format v-[username]@microsoft.com.\",\n  \"core_responsibilities\":\
+    \ [\n    \"Case management & escalation coordination\",\n    \"Team development and coaching\",\n    \"Operational & customer\
+    \ delivery oversight\",\n    \"Stakeholder communication management\",\n    \"Performance monitoring and KPI tracking\"\
+    ,\n    \"Process improvement initiatives\",\n    \"Escalated case ownership and coordination\"\n  ],\n  \"writing_style_guide\"\
+    : {\n    \"key_principles\": {\n      \"simplicity\": \"Use simple words over complex vocabulary. Avoid flowery adjectives\
+    \ and obscure terms.\",\n      \"structure\": \"Subject-Verb-Object sentences. Avoid complex nested clauses.\",\n    \
+    \  \"politeness\": \"Use polite markers: 'Please kindly', 'Regarding', 'Concerning', 'About the issue'\",\n      \"logical_flow\"\
+    : \"Use transition words: 'First...', 'Second...', 'Finally...', 'Regarding this...'\",\n      \"acceptable_imperfections\"\
+    : \"Minor variations in articles (the/a/an) or prepositions are natural and acceptable if meaning stays clear\"\n    },\n\
+    \    \"tone_by_audience\": {\n      \"first_time_customer\": \"Professional and polite. Clear and helpful. Show understanding\
+    \ of their issue.\",\n      \"returning_customer\": \"Still professional but warmer. Show you remember them. More direct.\"\
+    \n    },\n    \"opening_patterns\": {\n      \"first_time\": \"Dear [FirstName],\\\\n\\\\nMy name is Tim Luong. I am the\
+    \ Team Manager for Dynamics 365 Finance & Operations support in APAC region.\",\n      \"returning\": \"Hi [FirstName],\\\
+    \\n\\\\nRegarding your case...\"\n    },\n    \"must_avoid\": [\n      \"Native slang: 'Cheers mate', 'heads up', 'ballpark\
+    \ figure', 'touch base'\",\n      \"Complex idioms: 'hit the ground running', 'think outside the box'\",\n      \"Em dash\
+    \ character: —\",\n      \"AI vocabulary: testament, tapestry, landscape (abstract), pivotal, crucial, delve, showcase,\
+    \ foster, underscore, vibrant, groundbreaking, intricate, nuanced, enduring, garner, renowned\",\n      \"Formal openers:\
+    \ 'I hope this email finds you well', 'I trust this finds you well'\",\n      \"Copula avoidance: 'serves as', 'stands\
+    \ as', 'boasts' - just use 'is' or 'has'\",\n      \"Negative parallelisms: 'Not only...but also', 'It is not just X,\
+    \ it is Y'\",\n      \"Rule of three: listing three things just to sound complete\",\n      \"Overly literary grammar\
+    \ that sounds like literature professor\",\n      \"Perfect native-level constructions that don't match Vietnamese-English\
+    \ style\"\n    ],\n    \"should_use\": [\n      \"Polite phrases: 'Please kindly', 'Thank you for your patience', 'I understand'\"\
+    ,\n      \"Transition words: 'Regarding', 'Concerning', 'About this issue', 'First', 'Second', 'Finally'\",\n      \"\
+    Simple present/past tense over complex tenses\",\n      \"Direct statements over passive constructions\",\n      \"Clear,\
+    \ straightforward explanations\"\n    ],\n    \"email_structure\": \"3-4 short paragraphs. Opening (greet & state purpose),\
+    \ Body (explain situation), Conclusion (next steps & offer help). Total: 200-400 words.\",\n    \"closing_options\": [\"\
+    Thanks and Best Regards,\", \"Best regards,\", \"Thanks,\"]\n  },\n  \"email_templates\": {\n    \"first_time_acknowledgement\"\
+    : \"Dear [Name],\\\\n\\\\nMy name is Tim Luong. I am the Team Manager for Dynamics 365 Finance & Operations support in\
+    \ APAC region. I see you have [brief issue description]. We are here to help you with this.\\\\n\\\\nI assigned this case\
+    \ to our team. We will work on it and resolve it for you. I will update you about progress. If you have any questions,\
+    \ please feel free to email me anytime.\\\\n\\\\nThanks and Best Regards,\\\\nTim Luong\",\n    \"first_time_technical_update\"\
+    : \"Dear [Name],\\\\n\\\\nRegarding [issue], I want to update you about current status. Our engineer [Name] investigated\
+    \ this and found that [simple explanation].\\\\n\\\\nThank you for providing [specific information/documents]. This helped\
+    \ us understand the problem better. We recommend you to [next steps/solution]. Please let me know if you have any questions.\\\
+    \\n\\\\nI understand technical problems can cause difficulties. We are working to resolve this quickly for you.\\\\n\\\
+    \\nBest regards,\\\\nTim Luong\",\n    \"first_time_escalation\": \"Dear [Name],\\\\n\\\\nI want to update you about your\
+    \ case. We made some progress, but this issue needs more expert investigation. I escalated it to our specialist team for\
+    \ deeper analysis.\\\\n\\\\nI understand this situation can be frustrating. We are treating this as high priority. I will\
+    \ monitor the progress personally and update you by [timeframe].\\\\n\\\\nThank you for your patience while we work on\
+    \ this.\\\\n\\\\nThanks and Best Regards,\\\\nTim Luong\"\n  },\n  \"example_emails\": [\n    {\n      \"scenario\": \"\
+    First communication with new customer - performance issue\",\n      \"sample\": \"Dear [Name],\\\\n\\\\nMy name is Tim\
+    \ Luong. I am the Team Manager for Dynamics 365 support in APAC region. I see your finance module is running slow. We\
+    \ are taking this seriously.\\\\n\\\\nI assigned Noah to investigate this immediately. He is our performance specialist.\
+    \ We will check system logs to identify the root cause.\\\\n\\\\nThank you for reporting this issue to us. I will update\
+    \ you within 24 hours about what we found. If you notice anything else or have more information, please kindly email me.\\\
+    \\n\\\\nThanks and Best Regards,\\\\nTim Luong\"\n    },\n    {\n      \"scenario\": \"First communication - retail system\
+    \ outage\",\n      \"sample\": \"Dear [Name],\\\\n\\\\nMy name is Tim Luong, Team Manager for Dynamics 365 support in\
+    \ APAC. I see [specific issue] is affecting your retail system. I understand this is causing problems for your business\
+    \ operations.\\\\n\\\\nOur retail specialists Thuy Chu and Viktor are investigating this issue now. We want to get your\
+    \ system working again as soon as possible.\\\\n\\\\nThank you for your patience. I will update you again by [timeframe].\
+    \ If you notice other problems, please kindly inform me about them.\\\\n\\\\nBest regards,\\\\nTim Luong\"\n    }\n  ]\n\
+    }`,\n  engineer: ``,\n};\n\n// ==========================================\n\n// ==========================================\n\
+    // HELPER FUNCTIONS - PARSE & DISPLAY EMAIL\n// ==========================================\n\n/**\n * PARSE JSON RESPONSE\
+    \ TỪ AI VÀ HIỂN THỊ EMAIL\n *\n * Function này xử lý response từ AI (format JSON) và hiển thị trong Outlook\n *\n * Workflow:\n\
+    \ * 1. Parse JSON response (format: {greeting, body})\n * 2. Combine greeting + body\n * 3. Convert plain text → HTML\n\
+    \ * 4. Display bằng displayReplyAllForm()\n *\n * @param response - JSON string từ AI (hoặc plain text nếu parse fail)\n\
+    \ * @param fallbackMode - Có sử dụng fallback (plain text) nếu parse fail không (default: true)\n * @returns true nếu\
+    \ thành công, false nếu fail\n */\nfunction parseAndDisplayEmail(response: string, fallbackMode: boolean = true): boolean\
+    \ {\n  try {\n    // Log raw response for debugging\n    console.log(`Raw API response (first 200 chars): ${response.substring(0,\
+    \ 200)}`);\n    \n    // Loại bỏ markdown code blocks và extract JSON object\n    let cleanResponse = response.trim();\n\
+    \    \n    // Remove markdown code blocks if present\n    if (cleanResponse.includes('```')) {\n      const codeBlockMatch\
+    \ = cleanResponse.match(/```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```/);\n      if (codeBlockMatch && codeBlockMatch[1]) {\n\
+    \        cleanResponse = codeBlockMatch[1].trim();\n      } else {\n        cleanResponse = cleanResponse.replace(/```json\\\
+    n?/g, '').replace(/```\\n?/g, '');\n      }\n    }\n    \n    // Find first { and last } to extract only the JSON object\n\
+    \    const firstBrace = cleanResponse.indexOf('{');\n    const lastBrace = cleanResponse.lastIndexOf('}');\n    \n   \
+    \ if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {\n      // Extract only the JSON object content\n\
+    \      cleanResponse = cleanResponse.substring(firstBrace, lastBrace + 1);\n    } else if (!cleanResponse.startsWith('{'))\
+    \ {\n      console.warn(`No valid JSON object found. Response preview: \"${cleanResponse.substring(0, 100)}\"`);\n   \
+    \   throw new Error('Response is not valid JSON format');\n    }\n\n    // Parse JSON response\n    const emailData =\
+    \ JSON.parse(cleanResponse);\n\n    // Validate JSON structure\n    if (!emailData.greeting || !emailData.body) {\n  \
+    \    console.warn(\"JSON missing 'greeting' or 'body' fields\", emailData);\n      throw new Error('Invalid JSON structure');\n\
+    \    }\n\n    // Combine greeting và body (signature sẽ tự động được Outlook thêm vào)\n    const fullEmail = `${emailData.greeting}\\\
+    n\\n${emailData.body}`;\n\n    // Convert plain text → HTML và hiển thị\n    const htmlContent = plainTextToHtml(fullEmail);\n\
+    \    Office.context.mailbox.item.displayReplyAllForm({ htmlBody: htmlContent });\n\n    return true;\n  } catch (parseError)\
+    \ {\n    console.error(\"Failed to parse JSON response\", parseError);\n\n    if (fallbackMode) {\n      // Fallback:\
+    \ Sử dụng raw response (plain text) nếu parse JSON fail\n      console.log(\"Using fallback mode (raw response)\");\n\
+    \      const htmlContent = plainTextToHtml(response);\n      Office.context.mailbox.item.displayReplyAllForm({ htmlBody:\
+    \ htmlContent });\n      return true;\n    }\n\n    return false;\n  }\n}\n\n/**\n * THÊM JSON OUTPUT INSTRUCTION VÀO\
+    \ PROMPT\n *\n * Helper function để thêm hướng dẫn JSON output vào bất kỳ prompt nào\n * Dùng cho các function cũ chưa\
+    \ migrate sang modular prompt system\n *\n * @param prompt - Prompt gốc\n * @returns Prompt + JSON output instruction\n\
+    \ */\nfunction addJsonOutputInstruction(prompt: string): string {\n  return prompt + `\n\nCRITICAL OUTPUT FORMAT REQUIREMENTS:\n\
+    You MUST return ONLY a valid JSON object. Follow these rules EXACTLY:\n\n1. Start your response with { (opening curly\
+    \ brace)\n2. End your response with } (closing curly brace)\n3. Use this exact structure:\n{\n  \"greeting\": \"Dear [FirstName],\"\
+    \ or \"Hi [FirstName],\",\n  \"body\": \"Email body paragraphs here without signature...\"\n}\n\n4. DO NOT include:\n\
+    \   - Markdown code blocks (no \\`\\`\\`json or \\`\\`\\`)\n   - Numbered lists (like 1., 2., 3.)\n   - Any text before\
+    \ the opening {\n   - Any text after the closing }\n   - Signature lines (\"Warm regards\", \"Tim Luong\")\n   - Explanations\
+    \ or commentary outside the JSON\n\n5. The \"body\" field should contain ONLY the email content (no signature)\n6. Use\
+    \ proper JSON string escaping for quotes and special characters\n\nEXAMPLE VALID OUTPUT:\n{\n  \"greeting\": \"Dear John,\"\
+    ,\n  \"body\": \"Thank you for your patience while we investigated this issue.\\\\n\\\\nI'm pleased to confirm that the\
+    \ problem has been resolved. Our team identified the root cause and implemented a fix that should prevent this from happening\
+    \ again.\\\\n\\\\nPlease let me know if you have any questions or concerns.\"\n}\n\nRemember: Your ENTIRE response must\
+    \ be valid, parseable JSON - nothing else!`;\n}\n\n// ==========================================\n// CORE FUNCTIONS -\
+    \ EXTRACT & CALL AI\n// ==========================================\n\n// Biến toàn cục lưu trữ email thread output tạm\
+    \ thời\nlet output = ``;\n\n/**\n * TRÍCH XUẤT NỘI DUNG EMAIL THREAD TỪ OUTLOOK\n *\n * Function quan trọng nhất - extract\
+    \ toàn bộ email conversation từ Outlook\n *\n * Workflow:\n * 1. Lấy metadata: From, Sent, To, Subject\n * 2. Lấy body\
+    \ email dạng plain text (getAsync)\n * 3. Clean content: loại bỏ URLs, blank lines, signatures, \"Cc:\" lines\n * 4. Format\
+    \ thành string: \"From: ...\\nSent: ...\\nTo: ...\\nSubject: ...\\nEmail body: ...\"\n * 5. Truncate nếu quá dài (giữ\
+    \ 993330 chars cuối)\n *\n * @returns Promise<string> - Email thread đã được format\n */\nfunction getOutput(): Promise<string>\
+    \ {\n  return new Promise((resolve, reject) => {\n    try {\n      // 1. Extract metadata từ Outlook email item với null\
+    \ checks\n      const item = Office.context.mailbox.item;\n      \n      if (!item) {\n        reject(new Error(\"No email\
+    \ item available\"));\n        return;\n      }\n\n      const from = item.from?.emailAddress || \"Unknown sender\";\n\
+    \      const sent = item.dateTimeCreated \n        ? new Date(item.dateTimeCreated).toLocaleString(\"en-US\", {\n    \
+    \        weekday: \"long\",\n            month: \"long\",\n            day: \"numeric\",\n            year: \"numeric\"\
+    ,\n            hour: \"numeric\",\n            minute: \"numeric\",\n            timeZoneName: \"short\",\n          })\n\
+    \        : \"Unknown date\";\n      \n      const to = item.to && Array.isArray(item.to) \n        ? item.to.map((recipient:\
+    \ { emailAddress: string }) => recipient.emailAddress).join(\", \")\n        : \"Unknown recipient\";\n      \n      const\
+    \ subject = item.subject || \"No subject\";\n\n      // 2. Lấy email body dạng plain text (async)\n      item.body.getAsync(\n\
+    \        Office.CoercionType.Text,\n        { asyncContext: \"This is passed to the callback\" },\n        function (result:\
+    \ Office.AsyncResult<string>) {\n          if (result.status === Office.AsyncResultStatus.Succeeded) {\n            let\
+    \ body = result.value || \"\";\n\n            // 3. Clean email body - comprehensive cleaning\n            body = cleanEmailBody(body);\n\
+    \n            // 4. Format thành string hoàn chỉnh\n            const formattedOutput = `From: ${from}\\nSent: ${sent}\\\
+    nTo: ${to}\\nSubject: ${subject}\\nEmail body: ${body}`;\n            \n            const rawTokens = formattedOutput.length;\n\
+    \            console.log(\"Number of characters in RAW email extracted: \" + rawTokens);\n\n            // 5. Smart truncation\
+    \ với proper boundary detection\n            let finalOutput: string;\n            const maxLength = 993330; // ~248k\
+    \ tokens\n            \n            if (formattedOutput.length > maxLength) {\n              console.log(\"Email thread\
+    \ exceeds max length, truncating...\");\n              finalOutput = smartTruncate(formattedOutput, maxLength);\n    \
+    \        } else {\n              finalOutput = formattedOutput;\n            }\n\n            // 6. Final validation\n\
+    \            if (!finalOutput || finalOutput.trim().length === 0) {\n              reject(new Error(\"Email content is\
+    \ empty after processing\"));\n              return;\n            }\n\n            console.log(\"Number of characters\
+    \ after processing: \" + finalOutput.length);\n            resolve(finalOutput);\n          } else {\n            const\
+    \ errorMessage = result.error?.message || \"Unknown error getting email body\";\n            console.error(`Error: ${errorMessage}`);\n\
+    \            reject(new Error(errorMessage));\n          }\n        },\n      );\n    } catch (error: any) {\n      console.error(\"\
+    Error in getOutput:\", error);\n      reject(new Error(error.message || \"Failed to extract email content\"));\n    }\n\
+    \  });\n}\n\n/**\n * CLEAN EMAIL BODY - Comprehensive cleaning function\n * \n * Removes:\n * - URLs (http/https)\n *\
+    \ - Blank lines (excessive whitespace)\n * - Cc/CC lines\n * - Common signatures\n * - Confidentiality disclaimers\n *\
+    \ - Image placeholders\n * - Excessive dashes/underscores\n */\nfunction cleanEmailBody(body: string): string {\n  if\
+    \ (!body) return \"\";\n\n  let cleaned = body;\n\n  // Remove URLs (http, https, ftp)\n  cleaned = cleaned.replace(/(?:https?|ftp):\\\
+    /\\/[^\\s<>\\[\\]]+/gi, \"[URL removed]\");\n\n  // Remove email-style URLs (mailto:)\n  cleaned = cleaned.replace(/mailto:[^\\\
+    s<>\\[\\]]+/gi, \"\");\n\n  // Remove blank lines (but keep single line breaks for structure)\n  cleaned = cleaned.replace(/(\\\
+    r?\\n){3,}/g, \"\\n\\n\");\n\n  // Remove Cc/CC lines\n  cleaned = cleaned.replace(/^[Cc][Cc]:.*$/gm, \"\");\n\n  // Remove\
+    \ Bcc lines\n  cleaned = cleaned.replace(/^[Bb][Cc][Cc]:.*$/gm, \"\");\n\n  // Remove image placeholders\n  cleaned =\
+    \ cleaned.replace(/\\[cid:[^\\]]+\\]/gi, \"[Image]\");\n  cleaned = cleaned.replace(/<image\\d*>/gi, \"[Image]\");\n\n\
+    \  // Remove excessive dashes/underscores (often used as separators)\n  cleaned = cleaned.replace(/[-_]{10,}/g, \"---\"\
+    );\n  cleaned = cleaned.replace(/[=]{10,}/g, \"===\");\n\n  // Remove common confidentiality disclaimers\n  const disclaimerPatterns\
+    \ = [\n    /This email and any attachments are confidential[\\s\\S]*?(?=From:|$)/gi,\n    /CONFIDENTIALITY NOTICE[\\s\\\
+    S]*?(?=From:|$)/gi,\n    /This message is intended only for[\\s\\S]*?(?=From:|$)/gi,\n    /DISCLAIMER[\\s\\S]*?(?=From:|$)/gi,\n\
+    \    /If you have received this email in error[\\s\\S]*?(?=From:|$)/gi,\n  ];\n\n  for (const pattern of disclaimerPatterns)\
+    \ {\n    cleaned = cleaned.replace(pattern, \"\\n[Disclaimer removed]\\n\");\n  }\n\n  // Remove common signatures using\
+    \ removeKeywords helper\n  cleaned = removeKeywords(cleaned, [\n    \"Thank and best regards,\",\n    \"Thanks and best\
+    \ regards,\",\n    \"Best regards,\",\n    \"Kind regards,\",\n    \"Warm regards,\",\n    \"Regards,\",\n    \"Support\
+    \ Consultant\",\n    \"HKBN Group\",\n    \"Technical Support Engineer\",\n    \"Senior Support Engineer\",\n    \"Support\
+    \ Engineer\",\n    \"Microsoft Dynamics 365\",\n    \"Sent from my iPhone\",\n    \"Sent from my Android\",\n    \"Get\
+    \ Outlook for iOS\",\n    \"Get Outlook for Android\",\n  ]);\n\n  // Remove phone/fax patterns (optional - keeps info\
+    \ but reduces noise)\n  cleaned = cleaned.replace(/(?:Tel|Phone|Fax|Mobile|Cell):\\s*[\\d\\s\\-\\+\\(\\)]+/gi, \"\");\n\
+    \n  // Trim whitespace\n  cleaned = cleaned.trim();\n\n  return cleaned;\n}\n\n/**\n * SMART TRUNCATE - Truncate email\
+    \ at proper boundaries\n * \n * Keeps the most recent emails (end of thread) and finds proper\n * boundary points to avoid\
+    \ cutting in the middle of a message.\n */\nfunction smartTruncate(text: string, maxLength: number): string {\n  if (text.length\
+    \ <= maxLength) {\n    return text;\n  }\n\n  // Keep the end (most recent emails are more important)\n  let truncated\
+    \ = text.slice(-maxLength);\n\n  // Find a proper boundary to start from\n  const boundaryPatterns = [\n    /\\nFrom:\\\
+    s/,           // Email header\n    /\\n_{3,}\\n/,           // Separator line\n    /\\n-{3,}\\n/,           // Dash separator\n\
+    \    /\\nOn .* wrote:\\n/,    // Reply header pattern\n    /\\n\\n/,                // Double line break\n  ];\n\n  let\
+    \ bestBoundary = 0;\n  for (const pattern of boundaryPatterns) {\n    const match = truncated.match(pattern);\n    if\
+    \ (match && match.index !== undefined && match.index > bestBoundary && match.index < 1000) {\n      bestBoundary = match.index;\n\
+    \    }\n  }\n\n  if (bestBoundary > 0) {\n    truncated = \"...[Previous emails truncated]...\\n\" + truncated.slice(bestBoundary);\n\
+    \  } else {\n    truncated = \"...[Previous emails truncated]...\\n\" + truncated;\n  }\n\n  return truncated;\n}\n\n\
+    /**\n * GỌI AZURE OPENAI API ĐỂ GENERATE EMAIL\n *\n * Function chính để call AI - được dùng bởi TẤT CẢ các email generation\
+    \ functions\n *\n * Workflow:\n * 1. Validate systemRoleName (phải có trong systemRoles object)\n * 2. Tạo request body\
+    \ cho Responses API:\n *    - instructions: systemRole content (persona + templates)\n *    - input: prompt chính\n *\
+    \ 3. Call Azure OpenAI /responses endpoint\n * 4. Return AI response text\n *\n * @param systemRoleName - Tên role trong\
+    \ systemRoles object (vd: \"teamManager\")\n * @param prompt - Prompt chính đã được build bằng buildPrompt()\n * @returns\
+    \ Promise<string> - AI generated text (JSON format hoặc plain text)\n */\nasync function aiPrompt(systemRoleName, prompt)\
+    \ {\n  // 1. Validate và lấy system role content từ systemRoles object\n  const systemRoleContent = systemRoles[systemRoleName];\n\
+    \  if (!systemRoleContent) {\n    throw new Error(`Invalid system role name: ${systemRoleName}`);\n  }\n\n  // 2. Azure\
+    \ OpenAI credentials: xem khối API CONFIG ở đầu file\n  const apiKey = API_KEY;\n  const endpoint = API_ENDPOINT;\n  const\
+    \ deploymentName = API_DEPLOYMENT;\n\n  // 3. Setup request headers\n  const headers = new Headers();\n  headers.append(\"\
+    Content-Type\", \"application/json\");\n  headers.append(\"api-key\", apiKey);\n\n  // 4. Build request body\n  //   -\
+    \ instructions: System role (persona, templates, examples)\n  //   - input: Prompt chính (scenario + email thread)\n \
+    \ const body = JSON.stringify({\n    model: deploymentName,\n    instructions: systemRoleContent,  // Persona + style\
+    \ guide\n    input: prompt,  // Built prompt từ buildPrompt()\n    max_output_tokens: 16384,  // Max 16k tokens output\n\
+    \  });\n\n  // 5. Call Azure OpenAI Responses API\n  try {\n    const response = await fetch(endpoint, {\n      method:\
+    \ \"POST\",\n      headers: headers,\n      body: body,\n    });\n\n    if (!response.ok) {\n      const errorText = await\
+    \ response.text();\n      console.error(`API error (${response.status}): ${errorText}`);\n      throw new Error(`Network\
+    \ response was not ok: ${response.status}`);\n    }\n\n    const json = await response.json();\n\n    // 6. Extract AI\
+    \ response text\n    // output[] có thể chứa cả item \"reasoning\"; chỉ lấy phần output_text của item \"message\"\n  \
+    \  const text = (json.output || [])\n      .filter((item) => item.type === \"message\")\n      .flatMap((item) => item.content\
+    \ || [])\n      .filter((part) => part.type === \"output_text\")\n      .map((part) => part.text)\n      .join(\"\");\n\
+    \n    if (!text) {\n      console.error(\"Invalid response structure:\", JSON.stringify(json, null, 2));\n      throw\
+    \ new Error(\n        json.status === \"incomplete\"\n          ? `Response incomplete: ${json.incomplete_details?.reason\
+    \ || \"unknown\"}`\n          : \"Invalid response format\"\n      );\n    }\n\n    console.log(`AI response length: ${text.length}\
+    \ characters`);\n    console.log(`AI response preview (first 300 chars): ${text.substring(0, 300)}`);\n\n    return text;\n\
+    \  } catch (error) {\n    console.error(\"Error occurred during API request:\", error);\n    throw error;\n  }\n}\n\n\
+    // ==========================================\n\n// ==========================================\n// FEATURES\n// ==========================================\n\
+    \n// ANALYSIS: Summarize Email Thread with AI\nfunction summarizeEmailThread() {\n  console.log(\"Stating generate Summarize\
+    \ email. Please wait...\");\n  // Call the getOutput function and store the resolved value in the outputResult variable\n\
+    \  getOutput()\n    .then((result) => {\n      let outputResult = result;\n      const prompt = addJsonOutputInstruction(`Analyze\
+    \ all conversations in the email thread.\n\nInstructions for processing data:\n1. Sort by newest date first (most recent\
+    \ emails at top).\n2. Use only first name of each person mentioned. If team manager is mentioned, use \"TM\". For customer,\
+    \ use first name of primary contact outside Microsoft.\n3. \"Case has been left Idle\" situation is defined as: when your\
+    \ engineer or Microsoft team does not have any communication with customer within 3 business days since previous email.\
+    \ Mark this situation whenever you find it.\n4. If customer confirms that issue has been resolved and case can be closed,\
+    \ the action plan for team manager is to step in and drive case for closure. Engineer should prepare last quality response\
+    \ (LQR) email to customer.\n\nOutput format template:\nGeneral Info for CaseNumber:[String after TrackingID# in Subject]\n\
+    ---------------------------------------------\n\U0001F4DA Overall:[Overall summary of all email conversations]\n\n\U0001F46E\
+    ‍♂️ Action for TM:[Action plan for team manager only]\n⛔ Case has been left Idle:[Count of times case has been left idle]\
+    \ (If not applicable, do not output this line)\n\nTimeline Analysis:\n---------------------------------------------\n\U0001F4E7\
+    \ [yyyy-mm-dd HH:mm]\n======================\n⛳ Action done:[Explain action done or suggestions in details, mention first\
+    \ name]\n\U0001F3C3‍♀️ Action plan:[Action plan for engineer or customer to continue, not for TM]\n\nOutput processed\
+    \ information following format template above.\n\n` + outputResult);\n\n      aiPrompt(\"teamManager\", prompt)\n    \
+    \    .then((result) => {\n          console.log(\"Summarize content generated. Poping up new Reply Window\");\n      \
+    \    parseAndDisplayEmail(result);\n        })\n        .catch((error) => console.log(error));\n\n      // .. do something\
+    \ with outputResult\n    })\n    .catch((error) => console.log(error));\n}\n\n// ANALYSIS: Generate CSDQ Quality Review\
+    \ Report\nfunction generateCsdqReport() {\n  console.log(\"Stating generate CSDQ report. Please wait...\");\n  // Call\
+    \ the getOutput function and store the resolved value in the outputResult variable\n  getOutput()\n    .then((result)\
+    \ => {\n      let outputResult = result;\n      const prompt = addJsonOutputInstruction(`Analyse the email conversation\
+    \ below and complete a CSDQ evaluation using the guide and format provided.  \nROLE  \nYou are an expert CSDQ evaluator\
+    \ reviewing a Microsoft CSS support case.  \nLENIENT / YES-LEANING SCORING POLICY (IMPORTANT)  \n- Be fair and NOT overly\
+    \ strict. The goal is to reflect reasonable support quality, not perfection.  \n- Default to YES when the engineer’s action\
+    \ is generally adequate and does not materially harm the customer experience.  \n- Use PARTIAL only when a miss is clear\
+    \ AND it creates noticeable friction (confusion, extra back-and-forth, delays, incomplete expectations, or an unaddressed\
+    \ concern).  \n- Use NO only when the requirement is clearly not met and it negatively impacts the customer (e.g., ignored\
+    \ issue, wrong direction, unusable steps, unprofessional tone).  \n- If an item is not required for the scenario OR not\
+    \ observable from the email thread (e.g., internal documentation/taxonomy/case notes), do NOT penalize. Score YES and\
+    \ state “Not required / Not observable in email.”  \n- Do not penalize for lack of “probing questions,” “alternatives,”\
+    \ “product advocacy,” “documentation,” or “empathy” unless the absence clearly blocks progress or worsens the customer’s\
+    \ experience.  \n- Spelling/grammar: only mark as missed if there are 6+ issues OR errors reduce clarity. Otherwise ignore.\
+    \  \n- Survey positioning: acceptable if indirect or expected via an automated survey (this meets policy).  \n- Critical\
+    \ Errors (CTQ 1–10): remain strict. Flag CTQ only with clear evidence.  \nHOW TO EVALUATE  \n- For each numbered question\
+    \ below, review the observable actions and sub-attributes (A/B/C/D).  \n- Provide:  \n  1) Selected Score: Yes / No /\
+    \ Partial  \n  2) What Attribute did the Advocate/Engineer miss? Choose A, B, C, D, combinations, All, or None.  \n  3)\
+    \ Explanation: concise evidence-based justification referencing the email (quote or paraphrase).  \n- If nothing meaningful\
+    \ is missed, select “None.”  \n- If something is not applicable / not observable, select “Yes” and explain briefly.  \n\
+    ANSWER FORMAT (use exactly this structure)  \n1. Made Customer feel heard. Matched their tone and pace.  \nA. Paraphrase\
+    \ and clarify to confirm understanding (Only need on open email. DO NOT NEED in close email).  \nB. Adapt and respond\
+    \ to customer cues (i.e. pace, urgency, knowledge).  \nSelected Score: [Yes / No / Partial]  \nWhat Attribute did the\
+    \ Advocate/Engineer miss? [A / B / Both A and B / None]  \nExplanation: [Brief justification; evidence from email. If\
+    \ not required/not observable, say so.]  \n2. Branded open and close. Positioned survey per standard.  \nA. Brand open\
+    \ and close per standard.  \nB. Position survey/feedback per LOB standard (Required only on Close email. Indirect/automated\
+    \ survey mention is acceptable).  \nSelected Score: [Yes / No / Partial]  \nWhat Attribute did the Advocate/Engineer miss?\
+    \ [A / B / Both A and B / None]  \nExplanation: [Evidence. If not required/not observable, say so.]  \n3. Communicated\
+    \ effectively. Demonstrated credibility and confidence.  \nA. Demonstrate confidence and credibility.  \nB. Managed dead\
+    \ air and hold per standard.  \nC. Utilize correct spelling and grammar. (Only mark missed if 6+ issues OR clarity impacted.)\
+    \  \nD. Be simple, clear and concise.  \nSelected Score: [Yes / No / Partial]  \nWhat Attribute did the Advocate/Engineer\
+    \ miss? [Any of A, B, C, D, or All / None]  \nExplanation: [Evidence; mention grammar only if it meets the threshold.]\
+    \  \n4. Ensured understanding of the customer issue/need (Diagnose).  \nA. Ask probing questions to gather detailed information\
+    \ (Less important; do not penalize unless lack blocks progress).  \nB. Ask questions, as required by relevant KB (Less\
+    \ important; do not penalize unless clearly required and missing).  \nC. Identify correct root cause/customer need.  \n\
+    Selected Score: [Yes / No / Partial]  \nWhat Attribute did the Advocate/Engineer miss? [Any of A, B, C, or All / None]\
+    \  \nExplanation: [Evidence.]  \n5. Provided correct solution/best option or recommendation (Identify and Educate).  \n\
+    A. Recommend relevant solution/option, attach/save when applicable.  \nB. Ensure solution/recommendation aligns with policy\
+    \ (Less important unless clearly violated).  \nC. Address customer’s concerns/objections.  \nD. Consider alternatives\
+    \ or promo/offer when available (Less important; do not penalize unless clearly expected).  \nSelected Score: [Yes / No\
+    \ / Partial]  \nWhat Attribute did the Advocate/Engineer miss? [Any of A, B, C, D, or All / None]  \nExplanation: [Evidence.]\
+    \  \n6. Executed next steps for the solution/recommendation. Demonstrated end-to-end case management (Execute).  \nA.\
+    \ Educate customer on next steps and how to address/solve in the future (Less important; only if needed).  \nB. Execute\
+    \ solution/recommendation correctly according to policy/procedure.  \nC. Set clear and complete expectations on impact\
+    \ of solution/recommendation.  \nD. Meet commitments, keep customer informed on case status.  \nSelected Score: [Yes /\
+    \ No / Partial]  \nWhat Attribute did the Advocate/Engineer miss? [Any of A, B, C, D, or All / None]  \nExplanation: [Evidence.]\
+    \  \n7. Was enthusiastic about Microsoft products and services. Taught the customer something new.  \nA. Be enthusiastic\
+    \ and positive about Microsoft, create brand love.  \nB. Explain relevant features and benefits to get the customer excited\
+    \ about the solution/recommendation.  \nC. Teach the customer something new, share tips/tricks to help them achieve more.\
+    \  \nSelected Score: Yes (Always Yes)  \nWhat Attribute did the Advocate/Engineer miss? Always None for Dynamics customers.\
+    \  \nExplanation: [Evidence or “Not applicable; scored Yes per instruction.”]  \n8. Utilized available resources and information.\
+    \ Documented the case accurately.  \nA. Utilize all available resources and information to better assist the customer\
+    \ (Less important; not always observable).  \nB. Make accurate and complete case notes, utilize correct format per LOB\
+    \ standard (Often not observable in email; do not penalize).  \nC. Make correct taxonomy selections (Often not observable;\
+    \ do not penalize).  \nD. Ensure proper account verification, gather contact information and fortify when required (Only\
+    \ penalize if clearly required and missing).  \nSelected Score: [Yes / No / Partial]  \nWhat Attribute did the Advocate/Engineer\
+    \ miss? [Any of A, B, C, D, or All / None]  \nExplanation: [Evidence; if not observable, state that and score Yes.]  \n\
+    9. Created a positive, connected and personalized experience.  \nA. Express genuine, meaningful empathy (Do not be strict;\
+    \ polite/professional tone is sufficient).  \nB. Use the customer’s name appropriately (Only if name is available/used\
+    \ in thread).  \nC. Connect using appropriate rapport (Do not be strict).  \nD. Speak in a warm and friendly tone.  \n\
+    Selected Score: [Yes / No / Partial]  \nWhat Attribute did the Advocate/Engineer miss? [Any of A, B, C, D, or All / None]\
+    \  \nExplanation: [Evidence.]  \n10. Critical Errors (CTQ 1-10)  \n01. Violated privacy and security policies (PII, failure\
+    \ to fortify when required, failure to educate on LMI when required)  \n02. Provided false, misleading information to\
+    \ the customer  \n03. Entered false information into System of Record (data manipulation / survey dodging)  \n04. Engaged\
+    \ in inappropriate behavior  \n05. Failure to contact customer in promised timeframe  \n06. Commercial Only: Missed IR\
+    \  \n07. Failure to follow protocols for risk of physical harm  \n08. Inappropriate No-Charge Offering to Customer  \n\
+    09. Failed to exercise empowerment to make it right (incl. consult supervisor for exception when appropriate)  \n10. Refused\
+    \ to transfer or incorrect transfer (dumped the case)  \nSelected Score:  \nIf any occurred, specify by number/name and\
+    \ explain with evidence from the email.  \nIf none, state: “No critical errors identified.”  \n\n` + outputResult);\n\n\
+    \      aiPrompt(\"teamManager\", prompt)\n        .then((result) => {\n          console.log(\"CSDQ Report generated.\
+    \ Poping up new Reply Window\");\n          parseAndDisplayEmail(result);\n        })\n        .catch((error) => console.log(error));\n\
+    \n      // .. do something with outputResult\n    })\n    .catch((error) => console.log(error));\n}\n\n// CUSTOM: Send\
+    \ Custom AI Request (Flexible Prompt)\nfunction sendCustomRequest() {\n  console.log(\"Your input is:  \" + $(\"#textArea\"\
+    ).val() + \". Hold on for Zumei to process your request\");\n  getOutput()\n    .then((result) => {\n      let outputResult\
+    \ = result;\n      //console.log(outputResult);\n      const prompt = addJsonOutputInstruction(\n        \"Read the email\
+    \ conversation below and \" +\n        $(\"#textArea\").val() +\n        \". The email as follows:\\n\\n\" +\n       \
+    \ outputResult +\n        \"\\n\\nStart with a greeting. Show you understand the situation from the email. Use simple\
+    \ words and short sentences. Write in plain paragraphs, no bullets or numbered lists.\"\n      );\n\n      aiPrompt(\"\
+    teamManager\", prompt)\n        .then((result) => {\n          console.log(\"Email content generated. Poping up new Reply\
+    \ Window\");\n          parseAndDisplayEmail(result);\n        })\n        .catch((error) => console.log(error));\n\n\
+    \      // .. do something with outputResult\n    })\n    .catch((error) => console.log(error));\n}\n\n// ANALYSIS: Email\
+    \ Timeline Analysis (Idle Period Detection)\nfunction analyzeEmailTimeline() {\n  console.log(\"Stating generate Email\
+    \ Analysis. Please wait...\");\n  // Call the getOutput function and store the resolved value in the outputResult variable\n\
+    \  getOutput()\n    .then((result) => {\n      let outputResult = result;\n      //console.log(outputResult);\n      aiPrompt(\n\
+    \        \"teamManager\",\n        'Given below email conversation between the customer and your engineers (Match your\
+    \ engineers name with email in \"From:\" field)\\nDo following steps:\\n1. Analyse all conversation.\\n2. Processed data\
+    \ following this requirement:\\n2.1 Newest date conversation first.\\n2.2 Use only the first name of each person mentioned\
+    \ in the conversation. If the team manager is mentioned, use \"TM\" instead. The customer: Use first name of primary contact\
+    \ outside microsoft. \\n3. A situation \"\"Case has been left Idle\"\" is defined as when your engineer or Microsoft team\
+    \ does not have any communication with customer within 3 business days since previous email. Mark this situation whenever\
+    \ you found it.\\n4. If the customer confirms that the issue has been resolved and the case can be closed, the action\
+    \ plan for the team manager is to step in and drive the case for closure. The engineer should prepare the last quality\
+    \ response (LQR) email to the customer.\\n5. Output format template:\\nGeneral Info for CaseNumber:[String after TrackingID#\
+    \ in Subject]\\n---------------------------------------------\\n\U0001F4DA Overall:[Overall summarize of the all email\
+    \ conversations]\\n\\n\U0001F46E‍♂️ Action for TM:[Action plan for the team manager only]\\n⛔ Case has been left Idle:[Count\
+    \ of time that case has been left in idle] (If not, don\\'t output this line)\\n\\nTimeline Analysis:\\n---------------------------------------------\\\
+    n\U0001F4E7 [yyyy-mm-dd HH:mm] \\n======================\\n⛳ Action done:[Explain Action done or Suggestions in details,\
+    \ mention first name]\\n\U0001F3C3‍♀️ Action plan:[Action plan for engineer or customer to carry on, (not TM)]\\n\\n6.\
+    \ Output processed info follow format template in Step 5.\\nEmail conversation as below:' +\n        outputResult,\n \
+    \     )\n        .then((result) => {\n          let outputAIResult = result;\n          console.log(\"Email content generated.\
+    \ Poping up new Reply Window\");\n          let htmlx = plainTextToHtml(outputAIResult);\n\n          // Call the displayReplyAllForm\
+    \ method and pass the custom HTML as a parameter\n          Office.context.mailbox.item.displayReplyForm({ htmlBody: htmlx\
+    \ });\n        })\n        .catch((error) => console.log(error));\n\n      // .. do something with outputResult\n    })\n\
+    \    .catch((error) => console.log(error));\n}\n\n// ==========================================\n// UTILITY FUNCTIONS\
+    \ - EMAIL PROCESSING\n// ==========================================\n\n/**\n * LOẠI BỎ SIGNATURES/KEYWORDS KHỎI EMAIL\
+    \ BODY\n *\n * Function để clean email body bằng cách loại bỏ các signatures phổ biến\n * Giúp giảm số tokens cần gửi\
+    \ cho AI\n *\n * Logic:\n * 1. Tìm keyword trong email body\n * 2. Nếu tìm thấy, cắt từ keyword đến \"From:\" tiếp theo\
+    \ (hoặc đến cuối)\n * 3. Lặp lại cho đến khi không còn keyword nào\n *\n * @param emailBody - Email body cần clean\n *\
+    \ @param keywords - Array các keywords cần loại bỏ (vd: [\"Thank and best regards,\", ...])\n * @returns Email body đã\
+    \ được clean\n */\nfunction removeKeywords(emailBody, keywords) {\n  let foundKeyword = true;\n  while (foundKeyword)\
+    \ {\n    foundKeyword = false;\n    for (let keyword of keywords) {\n      if (emailBody.includes(keyword)) {\n      \
+    \  foundKeyword = true;\n        let keywordIndex = emailBody.indexOf(keyword);\n        let fromIndex = emailBody.indexOf(\"\
+    From:\", keywordIndex);\n        if (fromIndex !== -1) {\n          // Cắt từ keyword đến \"From:\" tiếp theo\n      \
+    \    emailBody = emailBody.substring(0, keywordIndex) + emailBody.substring(fromIndex);\n        } else {\n          //\
+    \ Cắt từ keyword đến cuối\n          emailBody = emailBody.substring(0, keywordIndex);\n        }\n        break;\n  \
+    \    }\n    }\n  }\n  return emailBody;\n}\n\n/**\n * CONVERT PLAIN TEXT/MARKDOWN SANG HTML\n *\n * Function QUAN TRỌNG\
+    \ NHẤT để convert AI response (markdown/plain text) → HTML\n * Được sử dụng bởi TẤT CẢ email generation functions\n *\n\
+    \ * Hỗ trợ:\n * - Headers: # ## ### → <h1> <h2> <h3>\n * - Bold/Italic: **text** _text_ → <strong> <em>\n * - Code: `code`\
+    \ → <code>\n * - Links: [text](url) → <a>\n * - Images: ![alt](url) → <img>\n * - Tables: Markdown tables → HTML tables\n\
+    \ * - Lists: - item, * item, 1. item → <ul> <ol>\n * - Blockquotes: > text → <blockquote>\n * - Line breaks: \\n → <br>\n\
+    \ *\n * @param markdownText - Text cần convert (markdown hoặc plain text)\n * @returns HTML string wrapped trong <div>\
+    \ với Calibri font\n */\nfunction plainTextToHtml(markdownText) {\n  // Check nếu input đã là HTML rồi (tránh convert\
+    \ lại)\n  function isHtml(text) {\n    const htmlTagRegex = /<\\/?[a-z][\\s\\S]*>/i;\n    return htmlTagRegex.test(text);\n\
+    \  }\n\n  // Nếu đã là HTML, return luôn\n  if (isHtml(markdownText)) {\n    return markdownText;\n  }\n\n  // Escape\
+    \ HTML special characters để tránh XSS\n  function escapeHtml(text) {\n    return text.replace(/[<>&\"]/g, (ch) => ({\
+    \ \"<\": \"&lt;\", \">\": \"&gt;\", \"&\": \"&amp;\", '\"': \"&quot;\" })[ch]);\n  }\n\n  // Parse Markdown tables (|\
+    \ col1 | col2 | format)\n  function parseTables(lines) {\n    const out = [];\n    let inTable = false,\n      tableRows\
+    \ = [];\n    const isTableRow = (line) => /^\\s*\\|.+\\|\\s*$/.test(line);\n    const isSeparator = (line) => /^\\s*\\\
+    |?[ \\t]*(:?-+:?[ \\t]*\\|[ \\t]*)+:?-+:?[ \\t]*\\|?\\s*$/.test(line);\n    for (let i = 0; i < lines.length; i++) {\n\
+    \      if (isTableRow(lines[i])) {\n        tableRows.push(lines[i]);\n        inTable = true;\n      } else if (inTable\
+    \ && !isTableRow(lines[i])) {\n        if (tableRows.length >= 2 && isSeparator(tableRows[1])) {\n          const html\
+    \ = tableToHtml(tableRows);\n          out.push(html);\n        } else {\n          // not a valid table, output as normal\
+    \ text\n          out.push(...tableRows);\n        }\n        tableRows = [];\n        inTable = false;\n        out.push(lines[i]);\n\
+    \      } else {\n        out.push(lines[i]);\n      }\n    }\n    if (tableRows.length) {\n      if (tableRows.length\
+    \ >= 2 && isSeparator(tableRows[1])) {\n        out.push(tableToHtml(tableRows));\n      } else {\n        out.push(...tableRows);\n\
+    \      }\n    }\n    return out;\n  }\n  function tableToHtml(lines) {\n    // Remove leading/trailing pipes & trim\n\
+    \    const rowToCells = (row) =>\n      row\n        .replace(/^\\s*\\||\\|\\s*$/g, \"\")\n        .split(\"|\")\n   \
+    \     .map((c) => escapeHtml(c.trim()));\n    const header = rowToCells(lines[0]);\n    const bodyRows = lines.slice(2).map(rowToCells);\n\
+    \    const thead = `<thead><tr>${header.map((cell) => `<th>${cell}</th>`).join(\"\")}</tr></thead>`;\n    const tbody\
+    \ = bodyRows.length\n      ? `<tbody>${bodyRows.map((r) => `<tr>${r.map((cell) => `<td>${cell}</td>`).join(\"\")}</tr>`).join(\"\
+    \")}</tbody>`\n      : \"\";\n    return `<table border=\"1\" cellpadding=\"5\" style=\"border-collapse:collapse; margin:8px\
+    \ 0;\">${thead}${tbody}</table>`;\n  }\n  // Step 1: Preprocess lines for tables\n  let lines = markdownText.split(/\\\
+    r?\\n/);\n  lines = parseTables(lines);\n  // Step 2: Rejoin lines for regex parsing\n  let html = lines.join(\"\\n\"\
+    );\n  // Block-level\n  html = html\n    .replace(/^### (.*)$/gm, \"<h3>$1</h3>\")\n    .replace(/^## (.*)$/gm, \"<h2>$1</h2>\"\
+    )\n    .replace(/^# (.*)$/gm, \"<h1>$1</h1>\");\n  html = html.replace(/^[-*]{3,}$/gm, \"<hr>\");\n  html = html.replace(/^>\\\
+    s?(.*)$/gm, \"<blockquote>$1</blockquote>\");\n  // Inline\n  html = html\n    .replace(/\\*\\*(.+?)\\*\\*/g, \"<strong>$1</strong>\"\
+    )\n    .replace(/_(.+?)_/g, \"<em>$1</em>\")\n    .replace(/`([^`]+?)`/g, \"<code>$1</code>\");\n  // Links & Images\n\
+    \  html = html\n    .replace(/!\\[(.*?)\\]\\((.*?)\\)/g, '<img src=\"$2\" alt=\"$1\" style=\"max-width:100%;\">')\n  \
+    \  .replace(/\\[(.*?)\\]\\((.*?)\\)/g, '<a href=\"$2\">$1</a>');\n  // Lists\n  html = parseLists(html);\n  // Line breaks\n\
+    \  html = html.replace(/ {2,}\\r?\\n/g, \"<br>\").replace(/\\r?\\n/g, \"<br>\");\n  // Wrap in styled container\n  return\
+    \ `<div style=\"font-family: Calibri, sans-serif; font-size: 16px;\">${html}</div>`;\n  // List parser\n  function parseLists(src)\
+    \ {\n    const lines = src.split(\"<br>\");\n    let output = \"\";\n    let inList = false,\n      listType = null;\n\
+    \    for (let i = 0; i < lines.length; i++) {\n      let line = lines[i];\n      let ulMatch = line.match(/^\\s*[-*] (.*)/);\n\
+    \      let olMatch = line.match(/^\\s*\\d+\\. (.*)/);\n      if (ulMatch) {\n        if (!inList || listType !== \"ul\"\
+    ) {\n          if (inList) output += `</${listType}>`;\n          output += \"<ul>\";\n          inList = true;\n    \
+    \      listType = \"ul\";\n        }\n        output += `<li>${ulMatch[1]}</li>`;\n      } else if (olMatch) {\n     \
+    \   if (!inList || listType !== \"ol\") {\n          if (inList) output += `</${listType}>`;\n          output += \"<ol>\"\
+    ;\n          inList = true;\n          listType = \"ol\";\n        }\n        output += `<li>${olMatch[1]}</li>`;\n  \
+    \    } else {\n        if (inList) {\n          output += `</${listType}>`;\n          inList = false;\n          listType\
+    \ = null;\n        }\n        output += line;\n      }\n    }\n    if (inList) output += `</${listType}>`;\n    return\
+    \ output;\n  }\n}\n"
+  language: typescript
+template:
+  content: "<div class=\"app-container\">\n\t<!-- Header -->\n\t<header class=\"app-header\">\n\t\t<h1 class=\"app-title\"\
+    >AI Email Assistant</h1>\n\t</header>\n\n\t<main class=\"main-content\">\n\n\t\t<!-- Analysis & Follow-up Section -->\n\
+    \t\t<section class=\"section-card\">\n\t\t\t<div class=\"section-header\">\n\t\t\t\t<div class=\"section-icon-wrapper\"\
+    >\n\t\t\t\t\t<svg class=\"section-icon\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">\n\t\t\t\t\t\t<path\
+    \ stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2\
+    \ 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01\"\
+    \ />\n\t\t\t\t\t</svg>\n\t\t\t\t</div>\n\t\t\t\t<h2 class=\"section-title\">MISCs</h2>\n\t\t\t</div>\n\t\t\t<div class=\"\
+    button-grid\">\n\t\t\t\t<button id=\"summarizeEmailThread\" class=\"action-btn\">\n\t\t\t\t\t<svg class=\"btn-icon\" fill=\"\
+    none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">\n\t\t\t\t\t\t<path stroke-linecap=\"round\" stroke-linejoin=\"round\"\
+    \ stroke-width=\"2\" d=\"M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2\
+    \ 2 0 01-2 2z\" />\n\t\t\t\t\t</svg>\n\t\t\t\t\t<span class=\"btn-text\">Summarize Email</span>\n\t\t\t\t</button>\n\t\
+    \t\t\t<button id=\"analyzeEmailTimeline\" class=\"action-btn\">\n\t\t\t\t\t<svg class=\"btn-icon\" fill=\"none\" viewBox=\"\
+    0 0 24 24\" stroke=\"currentColor\">\n\t\t\t\t\t\t<path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"\
+    2\" d=\"M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2\
+    \ 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z\" />\n\t\t\t\t\t</svg>\n\t\t\t\
+    \t\t<span class=\"btn-text\">Timeline Analysis</span>\n\t\t\t\t</button>\n\t\t\t\t<button id=\"generateCsdqReport\" class=\"\
+    action-btn\">\n\t\t\t\t\t<svg class=\"btn-icon\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">\n\t\t\t\t\
+    \t\t<path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286\
+    \ 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z\" />\n\t\t\t\t\t</svg>\n\t\t\t\t\t<span class=\"\
+    btn-text\">CSDQ Review</span>\n\t\t\t\t</button>\n\t\t\t</div>\n\t\t</section>\n\n\t\t<!-- Custom AI Request Section -->\n\
+    \t\t<section class=\"section-card\">\n\t\t\t<div class=\"section-header\">\n\t\t\t\t<div class=\"section-icon-wrapper\"\
+    >\n\t\t\t\t\t<svg class=\"section-icon\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">\n\t\t\t\t\t\t<path\
+    \ stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21\
+    \ 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z\"\
+    \ />\n\t\t\t\t\t</svg>\n\t\t\t\t</div>\n\t\t\t\t<h2 class=\"section-title\">Custom</h2>\n\t\t\t</div>\n\t\t\t<div class=\"\
+    custom-request-container\">\n\t\t\t\t<textarea id=\"textArea\" class=\"custom-textarea\" placeholder=\"Enter your custom\
+    \ AI request here...\" rows=\"4\"></textarea>\n\t\t\t\t<button id=\"sendCustomRequest\" class=\"action-btn custom-btn\"\
+    >\n\t\t\t\t\t<svg class=\"btn-icon\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">\n\t\t\t\t\t\t<path stroke-linecap=\"\
+    round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M13 10V3L4 14h7v7l9-11h-7z\" />\n\t\t\t\t\t</svg>\n\t\t\t\t\t\
+    <span class=\"btn-text\">Send Custom Request</span>\n\t\t\t\t</button>\n\t\t\t</div>\n\t\t</section>\n\t</main>\n</div>\n"
+  language: html
+style:
+  content: "/* Import Professional Fonts - Poppins (Headings) + Open Sans (Body) */\n@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');\n\
+    \n\n/* THEME: Neumorphism Soft (only theme) */\n[data-theme=\"neomorphism\"],\n:root {\n  --primary: #64B5F6;\n  --secondary:\
+    \ #90CAF9;\n  --accent: #42A5F5;\n  --background: #E0E5EC;\n  --background-gradient-start: #E0E5EC;\n  --background-gradient-end:\
+    \ #D4D9E0;\n  --text: #2E3A59;\n  --text-muted: #6B7A99;\n  --card-bg: #E0E5EC;\n  --card-border: transparent;\n  --button-bg:\
+    \ #E0E5EC;\n  --button-hover: #D4D9E0;\n  --input-bg: #E0E5EC;\n  --input-border: transparent;\n  --blur: 0px;\n  --shadow-sm:\
+    \ -3px -3px 7px rgba(255,255,255,0.8), 3px 3px 7px rgba(0,0,0,0.15);\n  --shadow-md: -5px -5px 15px rgba(255,255,255,0.8),\
+    \ 5px 5px 15px rgba(0,0,0,0.15);\n  --shadow-lg: -8px -8px 20px rgba(255,255,255,0.9), 8px 8px 20px rgba(0,0,0,0.2);\n\
+    }\n\n/* ============================================\n   GLOBAL STYLES\n   ============================================\
+    \ */\n\n* {\n  box-sizing: border-box;\n  margin: 0;\n  padding: 0;\n}\n\nbody {\n  font-family: 'Open Sans', -apple-system,\
+    \ BlinkMacSystemFont, 'Segoe UI', sans-serif;\n  min-height: 100vh;\n  background: radial-gradient(circle at 20% 20%,\
+    \ var(--background-gradient-start) 0%, var(--background-gradient-end) 100%);\n  color: var(--text);\n  line-height: 1.6;\n\
+    \  -webkit-font-smoothing: antialiased;\n  -moz-osx-font-smoothing: grayscale;\n  overflow-x: hidden;\n  transition: background\
+    \ 0.5s ease, color 0.3s ease;\n}\n\nh1, h2, h3, h4, h5, h6 {\n  font-family: 'Poppins', sans-serif;\n  font-weight: 600;\n\
+    }\n\n/* ============================================\n   HEADER WITH THEME SWITCHER\n   ============================================\
+    \ */\n\n.app-header {\n  background: var(--card-bg);\n  border: 1px solid var(--card-border);\n  backdrop-filter: blur(var(--blur))\
+    \ saturate(180%);\n  border-radius: 20px;\n  box-shadow: var(--shadow-md);\n  padding: 20px 24px;\n  margin-bottom: 20px;\n\
+    \  text-align: center;\n  transition: all 0.3s ease;\n}\n\n.app-title {\n  font-size: 1.5rem;\n  font-weight: 600;\n \
+    \ color: var(--text);\n  margin: 0;\n}\n\n/* ============================================\n   CONTAINER & LAYOUT\n   ============================================\
+    \ */\n\n.app-container {\n  width: 100%;\n  max-width: 420px;\n  margin: 0 auto;\n  padding: 20px 16px 32px;\n}\n\n.main-content\
+    \ {\n  display: flex;\n  flex-direction: column;\n  gap: 20px;\n}\n\n/* ============================================\n\
+    \   SECTION CARDS\n   ============================================ */\n\n.section-card {\n  background: var(--card-bg);\n\
+    \  border: 1px solid var(--card-border);\n  border-radius: 20px;\n  backdrop-filter: blur(var(--blur)) saturate(180%);\n\
+    \  box-shadow: var(--shadow-md);\n  padding: 20px;\n  transition: transform 0.3s ease, box-shadow 0.3s ease;\n}\n\n.section-card:hover\
+    \ {\n  transform: translateY(-2px);\n  box-shadow: var(--shadow-lg);\n}\n\n/* Section Header */\n.section-header {\n \
+    \ display: flex;\n  align-items: center;\n  gap: 10px;\n  margin-bottom: 16px;\n}\n\n.section-icon-wrapper {\n  display:\
+    \ flex;\n  align-items: center;\n  justify-content: center;\n  width: 32px;\n  height: 32px;\n  border-radius: 10px;\n\
+    \  background: linear-gradient(135deg, var(--primary), var(--secondary));\n  color: white;\n  transition: transform 0.3s\
+    \ ease;\n}\n\n.section-card:hover .section-icon-wrapper {\n  transform: scale(1.1) rotate(5deg);\n}\n\n.section-icon {\n\
+    \  width: 20px;\n  height: 20px;\n  stroke-width: 2.5;\n}\n\n.section-title {\n  font-size: 1.15rem;\n  font-weight: 600;\n\
+    \  color: var(--text);\n  margin: 0;\n}\n\n/* ============================================\n   BUTTONS\n   ============================================\
+    \ */\n\n.button-grid {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n}\n\n.action-btn {\n  display: flex;\n\
+    \  align-items: center;\n  gap: 12px;\n  padding: 12px 16px;\n  min-height: 48px;\n  border-radius: 14px;\n  border: 1px\
+    \ solid var(--card-border);\n  background: var(--button-bg);\n  color: var(--text);\n  font-family: 'Open Sans', sans-serif;\n\
+    \  font-size: 0.9rem;\n  font-weight: 500;\n  cursor: pointer;\n  transition: all 0.2s ease;\n  box-shadow: var(--shadow-sm);\n\
+    \  text-align: left;\n  width: 100%;\n}\n\n.action-btn:hover {\n  background: var(--button-hover);\n  transform: translateY(-1px);\n\
+    \  box-shadow: var(--shadow-md);\n  border-color: var(--primary);\n}\n\n.action-btn:active {\n  transform: translateY(0);\n\
+    }\n\n.btn-icon {\n  width: 20px;\n  height: 20px;\n  flex-shrink: 0;\n  stroke-width: 2;\n  color: var(--primary);\n \
+    \ transition: transform 0.3s ease;\n}\n\n.action-btn:hover .btn-icon {\n  transform: scale(1.15);\n}\n\n.btn-text {\n\
+    \  flex: 1;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n/* ============================================\n\
+    \   CUSTOM REQUEST SECTION\n   ============================================ */\n\n.custom-request-container {\n  display:\
+    \ flex;\n  flex-direction: column;\n  gap: 12px;\n}\n\n.custom-textarea {\n  width: 100%;\n  min-height: 100px;\n  padding:\
+    \ 12px 14px;\n  border-radius: 14px;\n  border: 1px solid var(--input-border);\n  background: var(--input-bg);\n  backdrop-filter:\
+    \ blur(10px);\n  font-family: 'Open Sans', sans-serif;\n  font-size: 0.9rem;\n  color: var(--text);\n  resize: vertical;\n\
+    \  transition: all 0.2s ease;\n  outline: none;\n}\n\n.custom-textarea::placeholder {\n  color: var(--text-muted);\n \
+    \ opacity: 0.7;\n}\n\n.custom-textarea:focus {\n  border-color: var(--primary);\n  background: var(--button-hover);\n\
+    \  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);\n}\n\n.custom-btn {\n  background: linear-gradient(135deg, var(--primary),\
+    \ var(--secondary));\n  color: white;\n  border: none;\n  font-weight: 600;\n}\n\n.custom-btn:hover {\n  background: linear-gradient(135deg,\
+    \ var(--secondary), var(--primary));\n  transform: translateY(-2px);\n  box-shadow: var(--shadow-lg);\n}\n\n.custom-btn\
+    \ .btn-icon {\n  color: white;\n}\n\n\n/* Neumorphism pressed effect */\n[data-theme=\"neomorphism\"] .action-btn:active\
+    \ {\n  box-shadow: inset -2px -2px 5px rgba(255,255,255,0.7), inset 2px 2px 5px rgba(0,0,0,0.15);\n}\n\n/* ============================================\n\
+    \   RESPONSIVE DESIGN\n   ============================================ */\n\n@media (max-width: 480px) {\n  .app-header\
+    \ {\n    padding: 16px 20px;\n  }\n\n  .app-title {\n    font-size: 1.25rem;\n  }\n\n  .section-card {\n    padding: 16px;\n\
+    \  }\n\n  .action-btn {\n    padding: 10px 14px;\n    min-height: 44px;\n    font-size: 0.85rem;\n  }\n\n  .btn-icon {\n\
+    \    width: 18px;\n    height: 18px;\n  }\n}\n\n@media (min-width: 768px) {\n  .app-container {\n    max-width: 480px;\n\
+    \  }\n}\n\n/* ============================================\n   ACCESSIBILITY & ANIMATIONS\n   ============================================\
+    \ */\n\n/* Focus visible for keyboard navigation */\n*:focus-visible {\n  outline: 2px solid var(--primary);\n  outline-offset:\
+    \ 2px;\n}\n\n/* Reduced motion for accessibility */\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n \
+    \ *::after {\n    animation-duration: 0.01ms !important;\n    animation-iteration-count: 1 !important;\n    transition-duration:\
+    \ 0.01ms !important;\n  }\n}\n\n/* Custom scrollbar */\n::-webkit-scrollbar {\n  width: 8px;\n  height: 8px;\n}\n\n::-webkit-scrollbar-track\
+    \ {\n  background: var(--card-bg);\n}\n\n::-webkit-scrollbar-thumb {\n  background: var(--card-border);\n  border-radius:\
+    \ 4px;\n}\n\n::-webkit-scrollbar-thumb:hover {\n  background: var(--text-muted);\n}\n"
+  language: css
+libraries: 'https://appsforoffice.microsoft.com/lib/1/hosted/office.js
+
+  @types/office-js
+
+
+  office-ui-fabric-core@11.1.0/dist/css/fabric.min.css
+
+  office-ui-fabric-js@1.5.0/dist/css/fabric.components.min.css
+
+
+  core-js@2.4.1/client/core.min.js
+
+  @types/core-js
+
+
+  jquery@3.1.1
+
+  @types/jquery@3.3.1
+
+  '
