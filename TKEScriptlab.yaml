@@ -1,0 +1,1056 @@
+# Script Lab Snippet - AI Assistant for Outlook
+# Generated: 2026-10-22 10:23:15
+# Import this file in Script Lab: Import > Paste YAML
+#
+# IMPORTANT: Update API key in script section before running!
+# Lines 131-133: apiKey and endpoint variables
+#
+---
+name: AI Assistant for Outlook - D365 F&O Support
+description: AI-powered Outlook add-in for Dynamics 365 F&O customer support with Azure OpenAI integration
+author: Tim Luong
+host: OUTLOOK
+api_set: {}
+script:
+  content: "\n// ==========================================\n// API CONFIG - Azure OpenAI Responses API (sửa key ở đây khi\
+    \ rotate)\n// ==========================================\n// IMPORTANT: Thay API_KEY bằng key thực tế trước khi sử dụng.\
+    \ Không commit key thật.\nconst API_KEY = 'YOUR_API_KEY_HERE';\nconst API_ENDPOINT = 'https://kamezoko.services.ai.azure.com/openai/v1/responses';\n\
+    const API_DEPLOYMENT = 'gpt-5.6-luna';\n\n// ==========================================\n// INITIALIZATION - Wait for\
+    \ Office.js AND jQuery\n// ==========================================\nOffice.onReady(() => {\n  console.log('✅ Office.js\
+    \ is ready');\n\n  // Reset any pending reply draft when the user switches to a different\n  // email - a cached draft\
+    \ generated for the previous item must never be\n  // silently opened against a different one.\n  if (Office?.context?.mailbox?.addHandlerAsync)\
+    \ {\n    Office.context.mailbox.addHandlerAsync(Office.EventType.ItemChanged, () => {\n      console.log('\U0001F504 Item\
+    \ changed - clearing any pending reply draft.');\n      clearPendingReplyDraft();\n    });\n  }\n\n  $(document).ready(function\
+    \ () {\n    console.log('✅ jQuery is ready');\n\n    // Theme setup\n    const savedTheme = localStorage.getItem('app-theme')\
+    \ || 'neomorphism';\n    document.body.setAttribute('data-theme', savedTheme);\n    const themeSelector = document.getElementById('themeSelector')\
+    \ as HTMLSelectElement;\n    if (themeSelector) {\n      themeSelector.value = savedTheme;\n      themeSelector.addEventListener('change',\
+    \ function () {\n        const selectedTheme = (this as HTMLSelectElement).value;\n        console.log('\U0001F3A8 Theme\
+    \ changed to:', selectedTheme);\n        document.body.setAttribute('data-theme', selectedTheme);\n        localStorage.setItem('app-theme',\
+    \ selectedTheme);\n      });\n    }\n\n    console.log('\U0001F50C Attaching button event handlers...');\n\n    // Button\
+    \ event handlers\n    // SECTION 1: EDITING\n    $(\"#writeEmailFromSelectedText\").click(function() {\n      console.log('\U0001F58A\
+    ️ Write from selected text clicked');\n      writeEmailFromSelectedText();\n    });\n    $(\"#fineTuneSelectedEmail\"\
+    ).click(function() {\n      console.log('⚡ Fine tune clicked');\n      fineTuneSelectedEmail();\n    });\n\n    // SECTION\
+    \ 2: COACHING / QA\n    $(\"#prepareCoachingDocument\").click(function() {\n      console.log('\U0001F4DD Prepare coaching\
+    \ document clicked');\n      prepareCoachingDocument();\n    });\n    $(\"#coachingDocument\").click(function() {\n  \
+    \    console.log('\U0001F4C4 Coaching document clicked');\n      coachingDocument();\n    });\n\n    // SECTION 3: ANALYSIS\n\
+    \    $(\"#analyseWhatToDo\").click(function() {\n      console.log('\U0001F914 Analyse what to do clicked');\n      analyseWhatToDo();\n\
+    \    });\n    $(\"#analyzeEmailTimeline\").click(function() {\n      console.log('\U0001F4CA Timeline analysis clicked');\n\
+    \      analyzeEmailTimeline();\n    });\n    $(\"#summarizeEmailThread\").click(function() {\n      console.log('\U0001F4DD\
+    \ Summarize email clicked');\n      summarizeEmailThread();\n    });\n\n    // SECTION 4: CUSTOM\n    $(\"#sendCustomRequest\"\
+    ).click(function() {\n      console.log('\U0001F680 Custom request clicked');\n      sendCustomRequest();\n    });\n\n\
+    \    // Reply-Ready Banner: the \"Open Reply Draft\" click is itself a fresh\n    // user gesture, so the native API call\
+    \ happens right here rather than\n    // right after an AI network delay.\n    $(\"#openReplyDraftBtn\").click(function()\
+    \ {\n      console.log('\U0001F4E8 Open Reply Draft clicked');\n      if (pendingReplyDraft) {\n        const { htmlBody,\
+    \ actionName, rawText } = pendingReplyDraft;\n        hideReplyReadyBanner();\n        tryDisplayReplyAll(htmlBody, actionName,\
+    \ rawText);\n      }\n    });\n    $(\"#dismissReplyBanner\").click(function() {\n      console.log('\U0001F5D1️ Reply\
+    \ draft dismissed');\n      clearPendingReplyDraft();\n    });\n\n    console.log('✅ All button handlers attached successfully');\n\
+    \  });\n});\n\n// ==========================================\n// MODAL HELPERS\n// ==========================================\n\
+    function showModal(title: string, message: string) {\n  $('#modalTitle').text(title);\n  $('#modalMessage').html(message);\n\
+    \  $('#modalOverlay').addClass('active');\n}\n\nfunction hideModal() {\n  $('#modalOverlay').removeClass('active');\n\
+    }\n\n$('#modalClose').on('click', hideModal);\n$('#modalOk').on('click', hideModal);\n\n// ==========================================\n\
+    // EMAIL EXTRACTION & CLEANING\n// ==========================================\nlet output = ``;\n\nfunction removeKeywords(text:\
+    \ string, keywords: string[]): string {\n  let cleaned = text;\n  keywords.forEach((keyword) => {\n    const regex = new\
+    \ RegExp(keyword.replace(/[-/\\\\^$*+?.()|[\\]{}]/g, '\\\\$&'), 'gi');\n    cleaned = cleaned.replace(regex, '');\n  });\n\
+    \  return cleaned;\n}\n\nfunction cleanEmailBody(body: string): string {\n  if (!body) return '';\n\n  let cleaned = body;\n\
+    \n  cleaned = cleaned.replace(/(?:https?|ftp):\\/\\/[^\\s<>\\[\\]]+/gi, '[URL removed]');\n  cleaned = cleaned.replace(/mailto:[^\\\
+    s<>\\[\\]]+/gi, '');\n  cleaned = cleaned.replace(/(\\r?\\n){3,}/g, '\\n\\n');\n  cleaned = cleaned.replace(/^[Cc][Cc]:.*$/gm,\
+    \ '');\n  cleaned = cleaned.replace(/^[Bb][Cc][Cc]:.*$/gm, '');\n  cleaned = cleaned.replace(/\\[cid:[^\\]]+\\]/gi, '[Image]');\n\
+    \  cleaned = cleaned.replace(/<image\\d*>/gi, '[Image]');\n  cleaned = cleaned.replace(/[-_]{10,}/g, '---');\n  cleaned\
+    \ = cleaned.replace(/[=]{10,}/g, '===');\n\n  cleaned = removeKeywords(cleaned, [\n    'Thank and best regards,',\n  \
+    \  'Thanks and best regards,',\n    'Best regards,',\n    'Kind regards,',\n    'Warm regards,',\n    'Regards,',\n  \
+    \  'Support Consultant',\n    'Support Engineer',\n    'Senior Support Engineer',\n    'Sent from my iPhone',\n    'Sent\
+    \ from my Android',\n    'Get Outlook for iOS',\n    'Get Outlook for Android',\n  ]);\n\n  cleaned = cleaned.replace(/(?:Tel|Phone|Fax|Mobile|Cell):\\\
+    s*[\\d\\s\\-\\+\\(\\)]+/gi, '');\n  return cleaned.trim();\n}\n\nfunction smartTruncate(text: string, maxLength: number):\
+    \ string {\n  if (text.length <= maxLength) return text;\n  let truncated = text.slice(-maxLength);\n  const fromIndex\
+    \ = truncated.indexOf('\\nFrom:');\n  if (fromIndex > 0) {\n    truncated = '...[Previous emails truncated]...\\n' + truncated.substring(fromIndex\
+    \ + 1);\n  }\n  return truncated;\n}\n\nfunction getOutput(): Promise<string> {\n  return new Promise((resolve, reject)\
+    \ => {\n    try {\n      const item = Office.context.mailbox.item;\n      if (!item) {\n        reject(new Error('No email\
+    \ item available'));\n        return;\n      }\n\n      const from = item.from?.emailAddress || 'Unknown sender';\n  \
+    \    const sent = item.dateTimeCreated\n        ? new Date(item.dateTimeCreated).toLocaleString('en-US', {\n         \
+    \   weekday: 'long',\n            month: 'long',\n            day: 'numeric',\n            year: 'numeric',\n        \
+    \    hour: 'numeric',\n            minute: 'numeric',\n            timeZoneName: 'short',\n          })\n        : 'Unknown\
+    \ date';\n      const to = item.to && Array.isArray(item.to)\n        ? item.to.map((recipient: { emailAddress: string\
+    \ }) => recipient.emailAddress).join(', ')\n        : 'Unknown recipient';\n      const subject = item.subject || 'No\
+    \ subject';\n\n      item.body.getAsync(Office.CoercionType.Text, {}, function (result: Office.AsyncResult<string>) {\n\
+    \        if (result.status !== Office.AsyncResultStatus.Succeeded) {\n          reject(new Error(result.error?.message\
+    \ || 'Unknown error getting email body'));\n          return;\n        }\n\n        let body = cleanEmailBody(result.value\
+    \ || '');\n        const formattedOutput = `From: ${from}\\nSent: ${sent}\\nTo: ${to}\\nSubject: ${subject}\\nEmail body:\
+    \ ${body}`;\n        output = formattedOutput;\n\n        const maxLength = 150000;\n        const finalOutput = formattedOutput.length\
+    \ > maxLength ? smartTruncate(formattedOutput, maxLength) : formattedOutput;\n        resolve(finalOutput);\n      });\n\
+    \    } catch (error: any) {\n      reject(new Error(error.message || 'Failed to extract email content'));\n    }\n  });\n\
+    }\n\n// ==========================================\n// AI CALLER\n// ==========================================\nasync\
+    \ function aiPrompt(systemRoleName: string, prompt: string): Promise<string> {\n  console.log('\U0001F916 aiPrompt() called\
+    \ with role:', systemRoleName);\n  const systemRoleContent = systemRoles[systemRoleName];\n  if (!systemRoleContent) throw\
+    \ new Error(`Invalid system role name: ${systemRoleName}`);\n\n  console.log('\U0001F4E1 Sending request to Azure OpenAI\
+    \ (Responses API)...');\n  console.log('\U0001F517 Endpoint:', API_ENDPOINT);\n\n  const response = await fetch(API_ENDPOINT,\
+    \ {\n    method: 'POST',\n    headers: {\n      'Content-Type': 'application/json',\n      'api-key': API_KEY,\n    },\n\
+    \    body: JSON.stringify({\n      model: API_DEPLOYMENT,\n      instructions: systemRoleContent,\n      input: prompt,\n\
+    \      max_output_tokens: 16384,\n    }),\n  });\n\n  console.log('\U0001F4E1 Response status:', response.status, response.statusText);\n\
+    \n  if (!response.ok) {\n    const errorText = await response.text();\n    console.error('❌ API Error:', errorText);\n\
+    \    throw new Error(`Azure OpenAI API error: ${response.status} ${response.statusText}`);\n  }\n\n  const json = await\
+    \ response.json();\n  console.log('\U0001F4E6 Response received, parsing...');\n\n  // output[] may also hold \"reasoning\"\
+    \ items; keep only output_text parts of \"message\" items\n  const text: string = (json.output || [])\n    .filter((item:\
+    \ any) => item.type === 'message')\n    .flatMap((item: any) => item.content || [])\n    .filter((part: any) => part.type\
+    \ === 'output_text')\n    .map((part: any) => part.text)\n    .join('');\n  if (!text) {\n    console.error('❌ Invalid\
+    \ response format:', JSON.stringify(json));\n    throw new Error(\n      json.status === 'incomplete'\n        ? `Response\
+    \ incomplete: ${json.incomplete_details?.reason || 'unknown'}`\n        : 'Invalid response format'\n    );\n  }\n\n \
+    \ console.log('✅ AI response parsed successfully, length:', text.length);\n  return text;\n}\n\n// ==========================================\n\
+    // MARKDOWN/HTML HELPERS\n// ==========================================\nfunction plainTextToHtml(markdownText: string):\
+    \ string {\n  if (!markdownText) return '';\n  let html = markdownText;\n  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');\n\
+    \  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');\n  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');\n  html =\
+    \ html.replace(/\\*\\*(.*?)\\*\\*/gim, '<strong>$1</strong>');\n  html = html.replace(/\\*(.*?)\\*/gim, '<em>$1</em>');\n\
+    \  html = html.replace(/`(.*?)`/gim, '<code>$1</code>');\n  html = html.replace(/\\[(.*?)\\]\\((.*?)\\)/gim, '<a href=\"\
+    $2\" target=\"_blank\">$1</a>');\n  html = html.replace(/\\n\\n/g, '</p><p>');\n  html = `<div style=\"font-family: Calibri,\
+    \ Arial, sans-serif;\"><p>${html}</p></div>`;\n  return html;\n}\n\nfunction cleanHtmlForOutlookReply(fullHtml: string):\
+    \ string {\n  if (!fullHtml) return '';\n\n  // Extract content inside <body>...</body> if present, otherwise strip\n\
+    \  // doctype/head/style directly, since Outlook's native reply-all form\n  // rejects full HTML documents but accepts\
+    \ inline-styled markup.\n  const bodyMatch = fullHtml.match(/<body[^>]*>([\\s\\S]*?)<\\/body>/i);\n  let cleanContent\
+    \ = bodyMatch ? bodyMatch[1] : fullHtml;\n\n  cleanContent = cleanContent\n    .replace(/<!DOCTYPE[\\s\\S]*?>/gi, '')\n\
+    \    .replace(/<head[\\s\\S]*?<\\/head>/gi, '')\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, '')\n    .replace(/<\\/?(html|body)[^>]*>/gi,\
+    \ '')\n    .replace(/```html/gi, '')\n    .replace(/```/gi, '');\n\n  return cleanContent.trim();\n}\n\n// ==========================================\n\
+    // REPLY-READY BANNER (two-step flow)\n// ==========================================\n// Calling displayReplyAllFormAsync()\
+    \ right after an `await aiPrompt(...)`\n// network call can silently fail: the browser's \"trusted user gesture\"\n//\
+    \ from the original button click has expired by the time the AI response\n// arrives (typically several seconds later),\
+    \ so Outlook Web/WebView2\n// blocks the compose UI transition even though Office.js reports\n// `succeeded`. To guarantee\
+    \ the native call always runs on a fresh click,\n// the AI result is cached here and a banner asks the user to click\n\
+    // \"Open Reply Draft\" - THAT click is the fresh gesture that opens the form.\nlet pendingReplyDraft: { htmlBody: string;\
+    \ actionName: string; rawText: string } | null = null;\n\nfunction queueReplyDraft(htmlBody: string, actionName: string,\
+    \ rawText: string) {\n  pendingReplyDraft = { htmlBody, actionName, rawText };\n  showReplyReadyBanner(actionName);\n\
+    }\n\nfunction showReplyReadyBanner(actionName: string) {\n  const overlay = document.getElementById('replyReadyOverlay');\n\
+    \  const text = document.getElementById('replyReadyText');\n  if (text) text.textContent = `Your \"${actionName}\" response\
+    \ is ready to send.`;\n  if (overlay) overlay.classList.add('active');\n}\n\nfunction hideReplyReadyBanner() {\n  const\
+    \ overlay = document.getElementById('replyReadyOverlay');\n  if (overlay) overlay.classList.remove('active');\n}\n\nfunction\
+    \ clearPendingReplyDraft() {\n  pendingReplyDraft = null;\n  hideReplyReadyBanner();\n}\n\nfunction tryDisplayReplyAll(htmlBody:\
+    \ string, actionName: string, rawText: string) {\n  // displayReplyAllForm requires Mailbox 1.8 and is supported in Outlook\
+    \ on\n  // the web, Windows, and Mac - there's no host-specific restriction, so we\n  // always attempt it and only fall\
+    \ back to the modal if it's unsupported\n  // or the call itself fails (handled below).\n  const requirementsSupported\
+    \ =\n    Office?.context?.requirements?.isSetSupported &&\n    Office.context.requirements.isSetSupported('Mailbox', '1.8');\n\
+    \n  if (!requirementsSupported) {\n    console.warn('⚠️ Mailbox 1.8 not supported in this host; showing modal instead.');\n\
+    \    showModal(actionName, htmlBody);\n    return;\n  }\n\n  const item = Office?.context?.mailbox?.item;\n\n  if (!item\
+    \ || typeof item.displayReplyAllFormAsync !== 'function') {\n    console.warn('⚠️ displayReplyAllFormAsync is not available\
+    \ in this context/mode (e.g. Compose mode). Falling back to modal.');\n    showModal(actionName, htmlBody);\n    return;\n\
+    \  }\n\n  // The native reply-all form silently rejects full HTML documents\n  // (<!DOCTYPE>/<head>/<style>), so always\
+    \ strip down to inline markup\n  // before calling it. The modal fallback still uses the original\n  // htmlBody so rich/full-document\
+    \ content isn't lost if this fails.\n  const inlineBody = cleanHtmlForOutlookReply(htmlBody);\n\n  try {\n    item.displayReplyAllFormAsync(inlineBody,\
+    \ (result) => {\n      console.log('\U0001F4CB displayReplyAllFormAsync result:', JSON.stringify(result));\n      if (result.status\
+    \ !== Office.AsyncResultStatus.Succeeded) {\n        console.error('❌ displayReplyAllFormAsync failed:', result.error);\n\
+    \        console.log('⚠️ Falling back to modal dialog');\n        showModal(actionName, htmlBody);\n        return;\n\
+    \      }\n      console.log('✅ Reply-all form displayed (renders inline at the bottom of the reading pane, not as a separate\
+    \ pop-up window - scroll down if you don\\'t see it).');\n    });\n  } catch (err: any) {\n    console.error('❌ Exception\
+    \ during displayReplyAllFormAsync call:', err);\n    showModal(actionName, htmlBody);\n  }\n}\n\nfunction getSelectedTextAsync():\
+    \ Promise<string> {\n  return new Promise((resolve, reject) => {\n    Office.context.mailbox.item.getSelectedDataAsync(Office.CoercionType.Text,\
+    \ (asyncResult) => {\n      if (asyncResult.status === Office.AsyncResultStatus.Succeeded) {\n        resolve(asyncResult.value.data);\n\
+    \      } else {\n        reject(new Error(`Error getting selected text: ${asyncResult.error.message}`));\n      }\n  \
+    \  });\n  });\n}\n\nfunction replaceSelectionWithText(newText: string) {\n  Office.context.mailbox.item.body.getTypeAsync((asyncResult)\
+    \ => {\n    if (asyncResult.status === Office.AsyncResultStatus.Failed) {\n      console.log('Action failed with error:\
+    \ ' + asyncResult.error.message);\n      return;\n    }\n    const bodyFormat = asyncResult.value;\n    Office.context.mailbox.item.body.setSelectedDataAsync(newText,\
+    \ { coercionType: bodyFormat }, (setResult) => {\n      if (setResult.status === Office.AsyncResultStatus.Failed) {\n\
+    \        console.log('Action failed with error: ' + setResult.error.message);\n      }\n    });\n  });\n}\n\n// ==========================================\n\
+    // HANDLER FUNCTIONS\n// ==========================================\nasync function summarizeEmailThread() {\n  console.log('▶️\
+    \ summarizeEmailThread() function started');\n  try {\n    console.log('\U0001F4E7 Getting email output...');\n    const\
+    \ emailThread = await getOutput();\n    console.log('✅ Email output retrieved, length:', emailThread.length);\n    const\
+    \ prompt = `${promptTemplates.summarizeEmailThread}\\n\\nEmail conversation as below:\\n${emailThread}`;\n    console.log('\U0001F916\
+    \ Calling AI with prompt...');\n    const aiResponse = await aiPrompt('teamManager', prompt);\n    console.log('✅ AI response\
+    \ received, length:', aiResponse.length);\n\n    const htmlBody = plainTextToHtml(aiResponse);\n    console.log('\U0001F4E7\
+    \ Queuing reply-all draft...');\n    queueReplyDraft(htmlBody, 'Summarize Email', aiResponse);\n  } catch (error: any)\
+    \ {\n    console.error('❌ Error in summarizeEmailThread:', error);\n    showModal('Error', error.message || 'Failed to\
+    \ summarize email');\n  }\n}\n\nasync function sendCustomRequest() {\n  console.log('▶️ sendCustomRequest() function started');\n\
+    \  try {\n    console.log('\U0001F4E7 Getting email output...');\n    const emailThread = await getOutput();\n    console.log('✅\
+    \ Email output retrieved, length:', emailThread.length);\n    const request = ($('#textArea').val() as string) || '';\n\
+    \    console.log('\U0001F4DD Custom request:', request);\n    const prompt = promptTemplates.customRequest\n      .replace('{REQUEST}',\
+    \ request)\n      .replace('{EMAIL_CONTENT}', emailThread);\n    console.log('\U0001F916 Calling AI with prompt...');\n\
+    \    const aiResponse = await aiPrompt('teamManager', prompt);\n    console.log('✅ AI response received, length:', aiResponse.length);\n\
+    \n    const htmlBody = plainTextToHtml(aiResponse);\n    console.log('\U0001F4E7 Queuing reply-all draft...');\n    queueReplyDraft(htmlBody,\
+    \ 'Custom AI Response', aiResponse);\n  } catch (error: any) {\n    console.error('❌ Error in sendCustomRequest:', error);\n\
+    \    showModal('Error', error.message || 'Failed to send custom request');\n  }\n}\n\nasync function analyseWhatToDo()\
+    \ {\n  console.log('▶️ analyseWhatToDo() function started');\n  try {\n    console.log('\U0001F4E7 Getting email output...');\n\
+    \    const emailThread = await getOutput();\n    console.log('✅ Email output retrieved, length:', emailThread.length);\n\
+    \    const prompt = `${promptTemplates.whatToDo}\\n\\nEmail Content:\\n${emailThread}`;\n    console.log('\U0001F916 Calling\
+    \ AI with prompt...');\n    const aiResponse = await aiPrompt('teamManager', prompt);\n    console.log('✅ AI response\
+    \ received, length:', aiResponse.length);\n\n    const htmlBody = plainTextToHtml(aiResponse);\n    console.log('\U0001F4E7\
+    \ Queuing reply-all draft...');\n    queueReplyDraft(htmlBody, 'What to do', aiResponse);\n  } catch (error: any) {\n\
+    \    console.error('❌ Error in analyseWhatToDo:', error);\n    showModal('Error', error.message || 'Failed to analyse');\n\
+    \  }\n}\n\nasync function analyzeEmailTimeline() {\n  console.log('▶️ analyzeEmailTimeline() function started');\n  try\
+    \ {\n    console.log('\U0001F4E7 Getting email output...');\n    const emailThread = await getOutput();\n    console.log('✅\
+    \ Email output retrieved, length:', emailThread.length);\n    const prompt = `${promptTemplates.emailTimelineAnalysis}\\\
+    n\\nEmail conversation as below:\\n${emailThread}`;\n    console.log('\U0001F916 Calling AI with prompt...');\n    const\
+    \ aiResponse = await aiPrompt('teamManager', prompt);\n    console.log('✅ AI response received, length:', aiResponse.length);\n\
+    \n    const htmlBody = plainTextToHtml(aiResponse);\n    console.log('\U0001F4E7 Queuing reply-all draft...');\n    queueReplyDraft(htmlBody,\
+    \ 'Timeline Analysis', aiResponse);\n  } catch (error: any) {\n    console.error('❌ Error in analyzeEmailTimeline:', error);\n\
+    \    showModal('Error', error.message || 'Failed to analyze timeline');\n  }\n}\n\nasync function prepareCoachingDocument()\
+    \ {\n  console.log('▶️ prepareCoachingDocument() function started');\n  try {\n    console.log('\U0001F4E7 Getting email\
+    \ output...');\n    const emailThread = await getOutput();\n    console.log('✅ Email output retrieved, length:', emailThread.length);\n\
+    \    const prompt = `${promptTemplates.prepareCoachingDocument}\\n\\nQA Email:\\n${emailThread}`;\n    console.log('\U0001F916\
+    \ Calling AI with prompt...');\n    const aiResponse = await aiPrompt('teamManager', prompt);\n    console.log('✅ AI response\
+    \ received, length:', aiResponse.length);\n\n    // This prompt instructs the AI to return a full HTML document with\n\
+    \    // embedded <style> tags. tryDisplayReplyAll() strips it down to inline\n    // markup for the native form and preserves\
+    \ the full document for the\n    // modal fallback.\n    console.log('\U0001F4E7 Queuing reply-all draft...');\n    queueReplyDraft(aiResponse,\
+    \ 'Prepare Coaching Document', aiResponse);\n  } catch (error: any) {\n    console.error('❌ Error in prepareCoachingDocument:',\
+    \ error);\n    showModal('Error', error.message || 'Failed to prepare coaching doc');\n  }\n}\n\nasync function coachingDocument()\
+    \ {\n  console.log('▶️ coachingDocument() function started');\n  try {\n    console.log('\U0001F4E7 Getting email output...');\n\
+    \    const emailThread = await getOutput();\n    console.log('✅ Email output retrieved, length:', emailThread.length);\n\
+    \    const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });\n    console.log('\U0001F4C5\
+    \ Date:', today);\n    const prompt = `${promptTemplates.coachingDocument}\\n\\nUse this 1:1 date: ${today}.\\n\\nQA Email:\\\
+    n${emailThread}`;\n    console.log('\U0001F916 Calling AI with prompt...');\n    const aiResponse = await aiPrompt('teamManager',\
+    \ prompt);\n    console.log('✅ AI response received, length:', aiResponse.length);\n\n    // This prompt instructs the\
+    \ AI to return a full HTML document with\n    // embedded <style> tags. tryDisplayReplyAll() strips it down to inline\n\
+    \    // markup for the native form and preserves the full document for the\n    // modal fallback.\n    console.log('\U0001F4E7\
+    \ Queuing reply-all draft...');\n    queueReplyDraft(aiResponse, 'Coaching Document', aiResponse);\n  } catch (error:\
+    \ any) {\n    console.error('❌ Error in coachingDocument:', error);\n    showModal('Error', error.message || 'Failed to\
+    \ generate coaching doc');\n  }\n}\n\nasync function handleBadCaseMrec() {\n  try {\n    const emailThread = await getOutput();\n\
+    \    const prompt = `${promptTemplates.badCaseMrec}\\n\\nEmail conversation is below:\\n${emailThread}`;\n    const aiResponse\
+    \ = await aiPrompt('teamManager', prompt);\n    showModal('Recovery Email', aiResponse);\n  } catch (error: any) {\n \
+    \   showModal('Error', error.message || 'Failed to generate recovery email');\n  }\n}\n\nasync function fineTuneSelectedEmail()\
+    \ {\n  console.log('▶️ fineTuneSelectedEmail() function started');\n  try {\n    console.log('\U0001F4DD Getting selected\
+    \ text...');\n    const selectedText = await getSelectedTextAsync();\n    console.log('✅ Selected text retrieved, length:',\
+    \ selectedText.length);\n    const prompt = `${promptTemplates.fineTuneEmail}\\n\\n${selectedText}`;\n    console.log('\U0001F916\
+    \ Calling AI with prompt...');\n    const aiResponse = await aiPrompt('teamManager', prompt);\n    const htmlResponse\
+    \ = plainTextToHtml(aiResponse);\n    console.log('✅ AI response received, replacing selection...');\n    replaceSelectionWithText(htmlResponse);\n\
+    \    console.log('✅ Selection replaced');\n    showModal('Fine Tuned Email', aiResponse);\n  } catch (error: any) {\n\
+    \    console.error('❌ Error in fineTuneSelectedEmail:', error);\n    showModal('Error', error.message || 'Failed to fine\
+    \ tune email');\n  }\n}\n\nasync function writeEmailFromSelectedText() {\n  console.log('▶️ writeEmailFromSelectedText()\
+    \ function started');\n  try {\n    console.log('\U0001F4DD Getting selected text...');\n    const selectedText = await\
+    \ getSelectedTextAsync();\n    console.log('✅ Selected text retrieved, length:', selectedText.length);\n    const prompt\
+    \ = `${promptTemplates.writeEmailFromText}\\n\\n${selectedText}`;\n    console.log('\U0001F916 Calling AI with prompt...');\n\
+    \    const aiResponse = await aiPrompt('teamManager', prompt);\n    const htmlResponse = plainTextToHtml(aiResponse);\n\
+    \    console.log('✅ AI response received, replacing selection...');\n    replaceSelectionWithText(htmlResponse);\n   \
+    \ console.log('✅ Selection replaced');\n    showModal('Written Email', aiResponse);\n  } catch (error: any) {\n    console.error('❌\
+    \ Error in writeEmailFromSelectedText:', error);\n    showModal('Error', error.message || 'Failed to write email');\n\
+    \  }\n}\n\n// ==========================================\n// UNUSED (stub) - restructure email if needed\n// ==========================================\n\
+    async function handleGoodCaseMrec() {\n  try {\n    const emailThread = await getOutput();\n    const prompt = `${promptTemplates.restructureEmail}\\\
+    n\\n${emailThread}`;\n    const aiResponse = await aiPrompt('teamManager', prompt);\n    showModal('Restructured Email',\
+    \ aiResponse);\n  } catch (error: any) {\n    showModal('Error', error.message || 'Failed to restructure email');\n  }\n\
+    }\n\n// ==========================================\n// TYPE DECLARATIONS (Script Lab / Office.js)\n// ==========================================\n\
+    \n// Office.js (loaded as external library in Script Lab)\n// eslint-disable-next-line @typescript-eslint/no-explicit-any\n\
+    declare var Office: any;\n\n// jQuery (loaded from CDN in Script Lab)\n// eslint-disable-next-line @typescript-eslint/no-explicit-any\n\
+    declare var $: any;\n\n// System Roles configuration\nlet systemRoles = {\n  teamManager: `{\n  \"persona\": {\n    \"\
+    name\": \"Tim Luong\",\n    \"role\": \"Team Manager – Microsoft Dynamics 365 Finance & Operations (APAC Region)\",\n\
+    \    \"expertise\": \"Microsoft Dynamics 365 F&O across Commerce, Supply Chain, and Finance\",\n    \"summary\": \"Tim\
+    \ Luong communicates with business customers using warm, respectful, and clear language. His style is professional yet\
+    \ personal—simple, direct, and empathetic.\",\n    \"voice\": \"First-person ('I', 'we')\",\n    \"email_signature\":\
+    \ \"Warm regards,\\\\nTim Luong\"\n  },\n  \"team_roster\": [\n    {\"name\": \"Noah\", \"email\": \"v-haphan@microsoft.com\"\
+    , \"role\": \"Escalation Engineer\", \"specialization\": \"dual-write, performance\"},\n    {\"name\": \"Eddie\", \"email\"\
+    : \"v-quangu@microsoft.com\", \"role\": \"Tech Lead\", \"specialization\": \"On-Premise\"},\n    {\"name\": \"Emma\",\
+    \ \"email\": \"v-thuyp@microsoft.com\", \"role\": \"Senior Engineer\", \"specialization\": \"general\"},\n    {\"name\"\
+    : \"Adam\", \"email\": \"v-lead@microsoft.com\", \"role\": \"Senior Engineer\", \"specialization\": \"general\"},\n  \
+    \  {\"name\": \"Amy\", \"email\": \"v-huyenguyen@microsoft.com\", \"role\": \"Tech Lead\", \"specialization\": \"dual-write,\
+    \ performance\"},\n    {\"name\": \"Veronica\", \"email\": \"v-vantran@microsoft.com\", \"role\": \"Senior Engineer\"\
+    , \"specialization\": \"dual-write, customization\"},\n    {\"name\": \"Alex\", \"email\": \"v-locngoxuan@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"general\"},\n    {\"name\": \"Nikolas\", \"email\": \"v-namnghiem@microsoft.com\"\
+    , \"role\": \"Escalation Engineer\", \"specialization\": \"general escalations\"},\n    {\"name\": \"Ted\", \"email\"\
+    : \"v-lehung@microsoft.com\", \"role\": \"Senior Engineer\", \"specialization\": \"general\"},\n    {\"name\": \"Henry\"\
+    , \"email\": \"v-dtranthien@microsoft.com\", \"role\": \"Senior Engineer\", \"specialization\": \"general\"},\n    {\"\
+    name\": \"Michael\", \"email\": \"v-hoangluong@microsoft.com\", \"role\": \"Senior Engineer\", \"specialization\": \"\
+    general\"},\n    {\"name\": \"Celina\", \"email\": \"v-thaongu@microsoft.com\", \"role\": \"Senior Engineer\", \"specialization\"\
+    : \"general\"},\n    {\"name\": \"Chandler\", \"email\": \"v-qnguyenduy@microsoft.com\", \"role\": \"Senior Engineer\"\
+    , \"specialization\": \"general\"},\n    {\"name\": \"Duke\", \"email\": \"v-duytrinh@microsoft.com\", \"role\": \"Senior\
+    \ Engineer\", \"specialization\": \"general\"},\n    {\"name\": \"Thuy Chu\", \"email\": \"v-thuychuthi@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"Retail\"},\n    {\"name\": \"Andree\", \"email\": \"v-nguyentanh@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"Retail\"},\n    {\"name\": \"Heather\", \"email\": \"v-hienpham@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"Retail\"},\n    {\"name\": \"Viktor\", \"email\": \"v-nhatvu@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"Retail\"},\n    {\"name\": \"Kim\", \"email\": \"v-ngua@microsoft.com\"\
+    , \"role\": \"Senior Engineer\", \"specialization\": \"Retail\"}\n  ],\n  \"name_matching_instructions\": \"When you see\
+    \ an email address in the email thread (e.g., v-nhatvu@microsoft.com), match it with the team roster above to use the\
+    \ engineer's proper name (e.g., Viktor).\",\n  \"communication_rule\": \"When reviewing email conversations, refer to\
+    \ individuals by their first names only. Avoid overly formal phrases.\"\n}`,\n  TKETeamManager: `You are Cong.Luong-Minh\
+    \ (Cong.luong-minh@tek-experts.com), a Team Manager responsible for overseeing a customer support team specializing in\
+    \ Dynamics 365 Finance and Operations within the APAC Region.`\n};\n\n// Prompt Templates configuration (simplified versions)\n\
+    let promptTemplates = {\n  summarizeEmailThread: `Analyze and summarize the email conversation provided below.`,\n  customRequest:\
+    \ `Read the email conversation below and {REQUEST}. The email as follows:{EMAIL_CONTENT}`,\n  whatToDo: `Analyze the provided\
+    \ email and identify specific, required actions.`,\n  restructureEmail: `Restructure the following input emails to enhance\
+    \ their flow and logical organization.`,\n  badCaseMrec: `Draft a professional, empathetic, and effective email to a customer\
+    \ whose issue has been resolved.`,\n  emailTimelineAnalysis: `Analyze provided chronological communication and create\
+    \ a structured timeline.`,\n  fineTuneEmail: `Restructure the following input emails to enhance its flow. Remove formal\
+    \ phrases and use simple vocabulary.`,\n  writeEmailFromText: `Write an email following this instruction and info provided:`,\n\
+    \  prepareCoachingDocument: `\nRole: You are Cong.Luong-Minh a manager preparing for a pivotal 1:1 coaching session. You\
+    \ tasked with generating a comprehensive preparation document for this session.\n\nObjective: Create a detailed coaching\
+    \ preparation document that leverages provided QA feedback, adheres strictly to the ACE report format, and integrates\
+    \ a Radical Candor approach (Caring Personally while Challenging Directly).\n\nKey Requirements & Constraints:\n* SMART\
+    \ Goals: Present two SMART goals as a single, concise, human-readable paragraph, not a bulleted list.\n* Coaching Script:\
+    \ Generate a full, detailed coaching script for the manager's rehearsal, covering introduction, feedback delivery, action\
+    \ planning, and conclusion.\n\nInput You Will Provide:\n* The full content of a QA team's feedback email. This email is\
+    \ the sole source for all performance data (engineer's name, case tracking ID, positive feedback, and missed attributes).\n\
+    \nYour Task (Step-by-Step Generation):\n\n1.  Information Extraction: From the provided QA email, meticulously extract\
+    \ the engineer's full name, case tracking ID, all specific positive feedback (Yes scores), and all areas marked for improvement\
+    \ (Missed Attributes/Partial scores) including their associated explanations.\n2.  Document Structure (ACE Report Format):\n\
+    \    Generate the preparation document using the following sections and content, ensuring all placeholders are clearly\
+    \ indicated as [Placeholder: Description].\n\n    ---\n\n    1. Coaching Session Overview\n    * Why: State explicitly\
+    \ that the session addresses feedback from the QA team on the engineer's performance for case [Extracted Case Tracking\
+    \ ID], aiming to identify and improve recognized gaps.\n    * What: Summarize the core topics and specific areas of performance\
+    \ based on the extracted 'missed attributes' or 'partial scores' from the QA feedback.\n    * When: [Placeholder: Insert\
+    \ Date and Time of 1:1 Coaching Session]\n    * How: Describe the methodology: a constructive, collaborative, and Radical\
+    \ Candor approach (direct feedback with personal support).\n\n    ---\n\n    2. Session Information\n    * SE Name: [Extracted\
+    \ Engineer's Full Name] (and their email address, if available in the QA email).\n    * Department: \"Dynamics 365 ERP\
+    \ Customer Services and Support\" (unless a different department is explicitly stated in the QA email, in which case use\
+    \ the extracted department).\n    * Date: [Placeholder: Date of 1:1 Meeting]\n    * Time: [Placeholder: Start and End\
+    \ Time of 1:1 Meeting (e.g., 45-60 min duration)]\n\n    ---\n\n    3. Deep Dive Analysis - QA Feedback Breakdown\n  \
+    \  * Positive Feedback Highlights: List specific positive observations extracted from the QA email.\n    * Coaching Focus\
+    \ Area 1: Identify the primary overarching theme from the most significant 'missed attributes' (e.g., \"Customer Communication\
+    \ & Engagement,\" \"Technical Case Documentation,\" \"Solution Delivery Effectiveness,\" \"Process Adherence\").\n   \
+    \     * Focus Area L2 (Missed Attributes from QA): For each specific 'missed attribute' within this theme:\n         \
+    \   * State the Question Number and Attribute (e.g., \"Question 2, Missed B\").\n            * Provide an objective summary\
+    \ of the QA's explanation.\n            * Develop a prepared \"Radical Candor Angle\" statement. This statement must be\
+    \ Direct, Specific, and Caring, framed with a genuine desire for growth. (Example: \"Amy, the QA feedback shows we missed\
+    \ a crucial step in the closing of the case – positioning the customer feedback survey. This isn't just a compliance item;\
+    \ it's vital for us to understand customer satisfaction and improve our service. I know you're great at managing cases,\
+    \ so let's dig into why this part was missed here.\")\n    * Coaching Focus Area 2 (Optional): If the QA feedback indicates\
+    \ a second, distinct major thematic area of improvement, identify it and repeat the \"Focus Area L2\" structure above\
+    \ for its relevant 'missed attributes'. If not, omit this section.\n\n    ---\n\n    4. Engineer Success Action Plan /\
+    \ Commitment (To be Developed Collaboratively)\n    * Coaching Opportunity: List specific skill/knowledge gaps corresponding\
+    \ to the 'missed attributes'.\n    * Root Cause: [Placeholder: To be explored with [Extracted SE Name] during the session\
+    \ – e.g., unawareness of policy, time pressure, focus on technical solution, habit, lack of training.]\n    * Action Plan:\
+    \ [Placeholder: Concrete steps [Extracted SE Name] will commit to taking to address opportunities.]\n    * SMART Goals\
+    \ (Human-readable paragraph): Generate one single paragraph stating two SMART goals for the engineer's improvement. Use\
+    \ the structure: \"Goal 1: By [Date], [Engineer Name] will [Specific Action], measured by [Metric]. This is achievable\
+    \ given [Reason] and relevant because [Impact]. Goal 2: Concurrently, within [Timeframe], [Engineer Name] will [Specific\
+    \ Action], verified by [Metric], which is achievable by [Reason] and directly relevant to [Impact].\" Ensure Engineer\
+    \ Name, Date, Timeframe, Specific Actions, Metrics, Reasons, and Impacts are general placeholders to be filled in during\
+    \ the actual session, while the structure is generated by you.\n    * Commitment: [Placeholder: Engineer's verbal commitment\
+    \ to implementing the action plan and adhering to timelines.]\n\n    ---\n\n    5. Manager Success Action Plan\n    *\
+    \ Action 1 (SMART): [Placeholder: Your first specific, measurable, achievable, relevant, and time-bound action to support\
+    \ the engineer.]\n    * Action 2 (SMART): [Placeholder: Your second specific, measurable, achievable, relevant, and time-bound\
+    \ support action, if necessary.]\n\n    ---\n\n    6. Follow-up and Acknowledgement\n    * Follow-up Date: [Placeholder:\
+    \ Two weeks from the 1:1 meeting date]\n    * Acknowledgement: [Placeholder: Engineer's acknowledgment of coaching session,\
+    \ understanding of feedback, and commitment to action plan.]\n\n    ---\n\n    7. Manager's Coaching Script (For Rehearsal)\n\
+    \    Generate a comprehensive, step-by-step script for the manager, incorporating Radical Candor principles.\n\n    1.\
+    \  Opening (Caring Personally & Setting Context):\n        * Greeting and Rapport Building (e.g., \"Hi [Engineer Name],\
+    \ thanks for making time. How's your week going so far?\").\n        * Clearly state meeting's purpose upfront (e.g.,\
+    \ \"I've scheduled this time to discuss the recent QA feedback on case [Extracted Case Tracking ID]. The goal is to review\
+    \ it together and identify opportunities for your continued growth. How does that sound?\").\n        * Emphasize collaborative\
+    \ discussion (e.g., \"My aim here is to understand your perspective and work together on solutions.\").\n\n    2.  Delivering\
+    \ Feedback (Challenging Directly - Positive First, then Areas for Growth):\n        * Start with Specific Positives: Refer\
+    \ directly to the extracted 'Yes' scores and positive explanations from the QA email. (e.g., \"First, I want to highlight\
+    \ some areas where you truly excelled. The QA noted your excellent customer empathy and tone matching...\").\n       \
+    \ * Transition to Areas for Growth (Radical Candor Angles): For each 'missed attribute' identified in the 'Deep Dive Analysis',\
+    \ state the specific feedback point using its prepared \"Radical Candor Angle.\"\n        * Pause and Listen: After each\
+    \ point, ask open-ended questions to invite the engineer's perspective (e.g., \"What are your thoughts on that?\" \"Can\
+    \ you help me understand what might have happened there?\" \"How do you feel about this feedback?\").\n        * Probe\
+    \ for Root Cause: Guide the conversation to understand why the gap exists (e.g., \"Was it a process oversight? Time pressure?\
+    \ Unfamiliarity with the policy?\").\n\n    3.  Collaborative Action Planning (Solving Together):\n        * Summarize\
+    \ Opportunities: Reiterate key areas for improvement.\n        * Brainstorm Solutions: Ask the engineer to propose solutions\
+    \ and action steps (e.g., \"Given what we've discussed, what steps do you think would be most effective for you to take\
+    \ to address [Focus Area]?\").\n        * Define SMART Goals: Collaborate to solidify action steps into two SMART goals.\
+    \ Include the manager's prompt to the engineer for defining these goals: \"Based on these actions, let's define two clear\
+    \ goals. For instance, by [Date], you will [Specific Action], which we can measure by [Metric]. This is achievable because\
+    \ [Reason] and relevant as it [Impact]. And for [Second Focus Area], by [Timeframe], you will [Specific Action], verified\
+    \ by [Metric], which is achievable by [Reason] and directly relevant to [Impact].\"\n        * Manager Support: Clearly\
+    \ state your commitment to supporting their success (e.g., \"From my side, I'm committed to helping you. I'll be sure\
+    \ to [Manager Action 1] and [Manager Action 2].\").\n\n    4.  Commitment & Follow-up (Reinforcing Accountability & Support):\n\
+    \        * Confirm Commitment: Ask for explicit commitment (e.g., \"Are you committed to implementing this plan? Do you\
+    \ feel confident about these steps?\").\n        * Schedule Follow-up: Set a clear date for the next check-in (e.g., \"\
+    Let's schedule a brief follow-up on [Follow-up Date] to check in on your progress and discuss any challenges or successes.\"\
+    ).\n        * Express Confidence & Positive Close: End on a positive, encouraging note (e.g., \"I have full confidence\
+    \ in your ability to master these areas. Your dedication to improvement is truly valued. Thanks again for this open conversation,\
+    \ [Engineer Name].\").\n\n    ---\n\"input_I_will_provide\": \"The full content of a QA team's feedback email. This email\
+    \ is the sole source for all performance data (engineer's name, case tracking ID, positive feedback, and missed attributes).\"\
+    ,\n\"CRITICAL OUTPUT FORMAT: Use the HTML_OUTPUT_TEMPLATE below only as a reference for section order and heading colors.\
+    \ Do NOT output <!DOCTYPE>, <html>, <head>, <style>, or <body> tags. Output ONLY an inline HTML fragment (starting with\
+    \ a single wrapping <div>) using inline style=\\\"...\\\" attributes on each h1/h2/h3/p/ul/li/strong element to reproduce\
+    \ the reference template's colors and spacing - no CSS classes, no separate stylesheet. The output MUST be ONLY this inline\
+    \ HTML fragment, with all dynamic content inserted into the correct sections, and without any markdown backticks, code\
+    \ block indicators, or other text before or after the HTML.\"\n\"html_output_template_reference_only\": \"<!DOCTYPE html>\\\
+    \\n<html lang=\\\\\"en\\\\\">\\\\n<head>\\\\n    <meta charset=\\\\\"UTF-8\\\\\">\\\\n    <meta name=\\\\\"viewport\\\\\
+    \" content=\\\\\"width=device-width, initial-scale=1.0\\\\\">\\\\n    <title>1:1 Coaching Preparation Document</title>\\\
+    \\n    <style>\\\\n        body {\\\\n            font-family: 'Inter', sans-serif;\\\\n            line-height: 1.6;\\\
+    \\n            color: #333;\\\\n            background-color: #f8f9fa;\\\\n            margin: 0;\\\\n            padding:\
+    \ 20px;\\\\n        }\\\\n        .container {\\\\n            max-width: 900px;\\\\n            margin: 20px auto;\\\\\
+    n            background: #ffffff;\\\\n            padding: 30px;\\\\n            border-radius: 12px;\\\\n           \
+    \ box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);\\\\n            border-top: 6px solid #1a73e8; /* Google Blue */\\\\n   \
+    \     }\\\\n        h1 {\\\\n            font-size: 2.2em;\\\\n            color: #1a73e8;\\\\n            text-align:\
+    \ center;\\\\n            margin-bottom: 25px;\\\\n            padding-bottom: 10px;\\\\n            border-bottom: 2px\
+    \ solid #e0e0e0;\\\\n        }\\\\n        h2 {\\\\n            font-size: 1.8em;\\\\n            color: #34a853; /* Google\
+    \ Green */\\\\n            margin-top: 35px;\\\\n            padding-bottom: 8px;\\\\n            border-bottom: 1px solid\
+    \ #e0e0e0;\\\\n        }\\\\n        h3 {\\\\n            font-size: 1.4em;\\\\n            color: #f9ab00; /* Google\
+    \ Yellow */\\\\n            margin-top: 25px;\\\\n            padding-bottom: 5px;\\\\n            border-bottom: 1px\
+    \ dotted #e0e0e0;\\\\n        }\\\\n        p, ul, ol {\\\\n            margin-bottom: 15px;\\\\n        }\\\\n      \
+    \  ul {\\\\n            list-style-type: disc;\\\\n            margin-left: 25px;\\\\n        }\\\\n        ol {\\\\n\
+    \            list-style-type: decimal;\\\\n            margin-left: 25px;\\\\n        }\\\\n        li {\\\\n        \
+    \    margin-bottom: 8px;\\\\n        }\\\\n        .section-content {\\\\n            padding: 15px 0;\\\\n        }\\\
+    \\n        .placeholder {\\\\n            color: #dc3545; /* Bootstrap Red */\\\\n            font-weight: bold;\\\\n\
+    \            background-color: #ffebeb;\\\\n            padding: 3px 6px;\\\\n            border-radius: 4px;\\\\n   \
+    \     }\\\\n        .radical-candor-example {\\\\n            background-color: #e6f7ff;\\\\n            border-left:\
+    \ 5px solid #1a73e8;\\\\n            padding: 15px;\\\\n            margin: 20px 0;\\\\n            border-radius: 8px;\\\
+    \\n            font-style: italic;\\\\n            color: #0d47a1;\\\\n        }\\\\n        .coaching-script {\\\\n \
+    \           background-color: #f0f4f8;\\\\n            border: 1px solid #d1e0ed;\\\\n            padding: 20px;\\\\n\
+    \            border-radius: 10px;\\\\n            margin-top: 30px;\\\\n        }\\\\n        .script-segment {\\\\n \
+    \           margin-bottom: 20px;\\\\n            padding-bottom: 15px;\\\\n            border-bottom: 1px dashed #cce0f0;\\\
+    \\n        }\\\\n        .script-segment:last-child {\\\\n            border-bottom: none;\\\\n            margin-bottom:\
+    \ 0;\\\\n            padding-bottom: 0;\\\\n        }\\\\n        .script-heading {\\\\n            font-weight: bold;\\\
+    \\n            color: #4285f4; /* Google Blue */\\\\n            margin-bottom: 10px;\\\\n        }\\\\n        .footer\
+    \ {\\\\n            text-align: center;\\\\n            margin-top: 40px;\\\\n            font-size: 0.85em;\\\\n    \
+    \        color: #777;\\\\n            padding-top: 20px;\\\\n            border-top: 1px solid #e0e0e0;\\\\n        }\\\
+    \\n    </style>\\\\n</head>\\\\n<body>\\\\n    <div class=\\\\\"container\\\\\">\\\\n        <h1>1:1 Coaching Preparation\
+    \ Document</h1>\\\\n\\\\n        <h2>1. Coaching Session Overview</h2>\\\\n        <div class=\\\\\"section-content\\\\\
+    \">\\\\n            <p><strong>Why:</strong> The session addresses feedback from the QA team on the engineer's performance\
+    \ for case [Extracted Case Tracking ID], aiming to identify and improve recognized gaps.</p>\\\\n            <p><strong>What:</strong>\
+    \ [Summary of core topics and specific areas of performance based on the extracted 'missed attributes' or 'partial scores'\
+    \ from the QA feedback]</p>\\\\n            <p><strong>When:</strong> <span class=\\\\\"placeholder\\\\\">[Placeholder:\
+    \ Insert Date and Time of 1:1 Coaching Session]</span></p>\\\\n            <p><strong>How:</strong> The intended methodology\
+    \ is a constructive, collaborative, and Radical Candor approach, signifying a commitment to both direct feedback and personal\
+    \ support.</p>\\\\n        </div>\\\\n\\\\n        <h2>2. Session Information</h2>\\\\n        <div class=\\\\\"section-content\\\
+    \\\">\\\\n            <p><strong>SE Name:</strong> [Extracted Engineer's Full Name]</p>\\\\n            <p><strong>SE\
+    \ Email:</strong> [Extracted Engineer's Email Address, if available in QA email]</p>\\\\n            <p><strong>Department:</strong>\
+    \ [Extracted Department from QA email, defaults to \\\\\"Dynamics 365 ERP Customer Services and Support\\\\\" if not specified]</p>\\\
+    \\n            <p><strong>Date:</strong> <span class=\\\\\"placeholder\\\\\">[Placeholder: Date of 1:1 Meeting]</span></p>\\\
+    \\n            <p><strong>Time:</strong> <span class=\\\\\"placeholder\\\\\">[Placeholder: Start and End Time of 1:1 Meeting\
+    \ (e.g., 45-60 min duration)]</span></p>\\\\n        </div>\\\\n\\\\n        <h2>3. Deep Dive Analysis - QA Feedback Breakdown</h2>\\\
+    \\n        <div class=\\\\\"section-content\\\\\">\\\\n            <h3>Positive Feedback Highlights:</h3>\\\\n       \
+    \     <ul>\\\\n                [List specific positive observations extracted from the QA email here]\\\\n           \
+    \ </ul>\\\\n\\\\n            <h3>Coaching Focus Area 1: [Primary Overarching Theme]</h3>\\\\n            <ul>\\\\n   \
+    \             <!-- Loop through each missed attribute in Focus Area 1 -->\\\\n                <li>\\\\n              \
+    \      <p><strong>Attribute:</strong> [Question Number], [Attribute Name]</p>\\\\n                    <p><strong>QA Explanation:</strong>\
+    \ [Brief, objective summary of QA's explanation]</p>\\\\n                    <p><strong>Radical Candor Angle:</strong>\
+    \ \\\\\"[Prepared Radical Candor statement - Direct, Specific, Caring]\\\\\"</p>\\\\n                </li>\\\\n      \
+    \      </ul>\\\\n\\\\n            <!-- Conditional section for Coaching Focus Area 2 -->\\\\n            <!-- If the QA\
+    \ feedback indicates a second distinct major thematic area of improvement, uncomment and fill this section -->\\\\n  \
+    \          <!--\\\\n            <h3>Coaching Focus Area 2: [Second Overarching Theme]</h3>\\\\n            <ul>\\\\n \
+    \               <li>\\\\n                    <p><strong>Attribute:</strong> [Question Number], [Attribute Name]</p>\\\\\
+    n                    <p><strong>QA Explanation:</strong> [Brief, objective summary of QA's explanation]</p>\\\\n     \
+    \               <p><strong>Radical Candor Angle:</strong> \\\\\"[Prepared Radical Candor statement - Direct, Specific,\
+    \ Caring]\\\\\"</p>\\\\n                </li>\\\\n            </ul>\\\\n            -->\\\\n        </div>\\\\n\\\\n \
+    \       <h2>4. Engineer Success Action Plan / Commitment (To be Developed Collaboratively)</h2>\\\\n        <div class=\\\
+    \\\"section-content\\\\\">\\\\n            <p><strong>Coaching Opportunity:</strong> [List specific skill/knowledge gaps\
+    \ corresponding to the 'missed attributes']</p>\\\\n            <p><strong>Root Cause:</strong> <span class=\\\\\"placeholder\\\
+    \\\">[Placeholder: To be explored with [Extracted SE Name] during the session – e.g., unawareness of policy, time pressure,\
+    \ focus on technical solution, habit, lack of training.]</span></p>\\\\n            <p><strong>Action Plan:</strong> <span\
+    \ class=\\\\\"placeholder\\\\\">[Placeholder: Concrete steps [Extracted SE Name] will commit to taking to address opportunities.]</span></p>\\\
+    \\n            <p><strong>SMART Goals:</strong> [Generated single paragraph stating two SMART goals for the engineer's\
+    \ improvement. Example structure: \\\\\"Goal 1: By [Date], [Engineer Name] will [Specific Action], measured by [Metric].\
+    \ This is achievable given [Reason] and relevant because [Impact]. Goal 2: Concurrently, within [Timeframe], [Engineer\
+    \ Name] will [Specific Action], verified by [Metric], which is achievable by [Reason] and directly relevant to [Impact].\\\
+    \\\"]</p>\\\\n            <p><strong>Commitment:</strong> <span class=\\\\\"placeholder\\\\\">[Placeholder: Engineer's\
+    \ verbal commitment to implementing the action plan and adhering to timelines.]</span></p>\\\\n        </div>\\\\n\\\\\
+    n        <h2>5. Manager Success Action Plan</h2>\\\\n        <div class=\\\\\"section-content\\\\\">\\\\n            <p><strong>Action\
+    \ 1 (SMART):</strong> <span class=\\\\\"placeholder\\\\\">[Placeholder: Your first specific, measurable, achievable, relevant,\
+    \ and time-bound action to support the engineer.]</span></p>\\\\n            <p><strong>Action 2 (SMART):</strong> <span\
+    \ class=\\\\\"placeholder\\\\\">[Placeholder: Your second specific, measurable, achievable, relevant, and time-bound support\
+    \ action, if necessary.]</span></p>\\\\n        </div>\\\\n\\\\n        <h2>6. Follow-up and Acknowledgement</h2>\\\\\
+    n        <div class=\\\\\"section-content\\\\\">\\\\n            <p><strong>Follow-up Date:</strong> <span class=\\\\\"\
+    placeholder\\\\\">[Placeholder: Two weeks from the 1:1 meeting date]</span></p>\\\\n            <p><strong>Acknowledgement:</strong>\
+    \ <span class=\\\\\"placeholder\\\\\">[Placeholder: Engineer's acknowledgment of coaching session, understanding of feedback,\
+    \ and commitment to action plan.]</span></p>\\\\n        </div>\\\\n\\\\n        <h2>7. Manager's Coaching Script (For\
+    \ Rehearsal)</h2>\\\\n        <div class=\\\\\"coaching-script\\\\\">\\\\n            <div class=\\\\\"script-segment\\\
+    \\\">\\\\n                <p class=\\\\\"script-heading\\\\\">1. Opening (Caring Personally & Setting Context):</p>\\\\\
+    n                <ul>\\\\n                    <li>Greeting and Rapport Building (e.g., \\\\\"Hi [Engineer Name], thanks\
+    \ for making time. How's your week going so far?\\\\\").</li>\\\\n                    <li>Clearly state meeting's purpose\
+    \ upfront (e.g., \\\\\"I've scheduled this time to discuss the recent QA feedback on case [Extracted Case Tracking ID].\
+    \ The goal is to review it together and identify opportunities for your continued growth. How does that sound?\\\\\").</li>\\\
+    \\n                    <li>Emphasize collaborative discussion (e.g., \\\\\"My aim here is to understand your perspective\
+    \ and work together on solutions.\\\\\").</li>\\\\n                </ul>\\\\n            </div>\\\\n\\\\n            <div\
+    \ class=\\\\\"script-segment\\\\\">\\\\n                <p class=\\\\\"script-heading\\\\\">2. Delivering Feedback (Challenging\
+    \ Directly - Positive First, then Areas for Growth):</p>\\\\n                <ul>\\\\n                    <li>Start with\
+    \ Specific Positives: Refer directly to the extracted 'Yes' scores and positive explanations from the QA email. (e.g.,\
+    \ \\\\\"First, I want to highlight some areas where you truly excelled. The QA noted your excellent customer empathy and\
+    \ tone matching...\\\\\").</li>\\\\n                    <li>Transition to Areas for Growth (Radical Candor Angles): For\
+    \ each 'missed attribute' identified in the 'Deep Dive Analysis', state the specific feedback point using its prepared\
+    \ \\\\\"Radical Candor Angle.\\\\\"</li>\\\\n                    <li>Pause and Listen: After each point, ask open-ended\
+    \ questions to invite the engineer's perspective (e.g., \\\\\"What are your thoughts on that?\\\\\" \\\\\"Can you help\
+    \ me understand what might have happened there?\\\\\" \\\\\"How do you feel about this feedback?\\\\\").</li>\\\\n   \
+    \                 <li>Probe for Root Cause: Guide the conversation to understand why the gap exists (e.g., \\\\\"Was it\
+    \ a process oversight? Time pressure? Unfamiliarity with the policy?\\\\\").</li>\\\\n                </ul>\\\\n     \
+    \       </div>\\\\n\\\\n            <div class=\\\\\"script-segment\\\\\">\\\\n                <p class=\\\\\"script-heading\\\
+    \\\">3. Collaborative Action Planning (Solving Together):</p>\\\\n                <ul>\\\\n                    <li>Summarize\
+    \ Opportunities: Reiterate key areas for improvement.</li>\\\\n                    <li>Brainstorm Solutions: Ask the engineer\
+    \ to propose solutions and action steps (e.g., \\\\\"Given what we've discussed, what steps do you think would be most\
+    \ effective for you to take to address [Focus Area]?\\\\\").</li>\\\\n                    <li>Define SMART Goals: Collaborate\
+    \ to solidify action steps into two SMART goals. Include the manager's prompt to the engineer for defining these goals:\
+    \ \\\\\"Based on these actions, let's define two clear goals. For instance, by [Date], you will [Specific Action], which\
+    \ we can measure by [Metric]. This is achievable because [Reason] and relevant as it [Impact]. And for [Second Focus Area],\
+    \ by [Timeframe], you will [Specific Action], verified by [Metric], which is achievable by [Reason] and directly relevant\
+    \ to [Impact].\\\\\"</li>\\\\n                    <li>Manager Support: Clearly state your commitment to supporting their\
+    \ success (e.g., \\\\\"From my side, I'm committed to helping you. I'll be sure to [Manager Action 1] and [Manager Action\
+    \ 2].\\\\\").</li>\\\\n                </ul>\\\\n            </div>\\\\n\\\\n            <div class=\\\\\"script-segment\\\
+    \\\">\\\\n                <p class=\\\\\"script-heading\\\\\">4. Commitment & Follow-up (Reinforcing Accountability &\
+    \ Support):</p>\\\\n                <ul>\\\\n                    <li>Confirm Commitment: Ask for explicit commitment (e.g.,\
+    \ \\\\\"Are you committed to implementing this plan? Do you feel confident about these steps?\\\\\").</li>\\\\n      \
+    \              <li>Schedule Follow-up: Set a clear date for the next check-in (e.g., \\\\\"Let's schedule a brief follow-up\
+    \ on [Follow-up Date] to check in on your progress and discuss any challenges or successes.\\\\\").</li>\\\\n        \
+    \            <li>Express Confidence & Positive Close: End on a positive, encouraging note (e.g., \\\\\"I have full confidence\
+    \ in your ability to master these areas. Your dedication to improvement is truly valued. Thanks again for this open conversation,\
+    \ [Engineer Name].\\\\\").</li>\\\\n                </ul>\\\\n            </div>\\\\n        </div>\\\\n\\\\n        <div\
+    \ class=\\\\\"footer\\\\\">\\\\n            <p>&copy; 2025 Luong Minh Cong</p>\\\\n        </div>\\\\n    </div>\\\\n</body>\\\
+    \\n</html>\"\n\n`,\n  coachingDocument: `Objective: Generate a complete and detailed coaching document directly from provided\
+    \ QA feedback. Follow the ACE report format strictly. This document will be the final coaching record, with all info filled\
+    \ in from your extraction and the exact date given for the coaching session.\n\nKey Requirements & Constraints:\n* SMART\
+    \ Goals: Create **two separate SMART goals (Goal 1 and Goal 2)**. Each goal should be a short, easy-to-read paragraph,\
+    \ automatically filling in specific details based on the QA feedback. If some details are not in the feedback, use standard\
+    \ best practices.\n\nInput You Will Provide:\n* The full content of a QA team's feedback email about CSDQ. This email\
+    \ is the **only source** for all needed data (engineer's name, case ID, good feedback, and missed items).\n* **The exact\
+    \ date of the 1:1 coaching session (for example, \"June 15, 2025\"). Use this date for all date fields.**\n\nYour Task\
+    \ (Step-by-Step Generation):\n\n1.  Information Extraction: Carefully find and pull out the **engineer's full name, case\
+    \ tracking ID, any engineer's email, and the engineer's department (if not stated, use \"Dynamics 365 ERP Customer Services\
+    \ and Support\"). Also, pull out all positive feedback (Yes scores) and all areas needing improvement (Missed Attributes/Partial\
+    \ scores) including their explanations.**\n2.  Date Determination: Use the **exact date of the 1:1 coaching session you\
+    \ are given** for all \"Date\" parts in the document. The **Follow-up Date** should be **\"Two weeks from the given 1:1\
+    \ coaching session date.\"** The **Start and End Time of 1:1 Meeting** should be **\"45-60 min duration\"**.\n3.  Document\
+    \ Generation (ACE Report Format):\n    Create the full coaching document by putting information into the HTML_OUTPUT_TEMPLATE.\
+    \ All changing content (extracted data, text you create, and date details) **MUST** go into the correct blank spots. **The\
+    \ final HTML output MUST NOT have any \\`[Placeholder: Description]\\` text for any part that you can fill in or create.**\n\
+    \n    ---\n\n    1. Coaching Session Overview\n    * Why: Clearly state that the session was to talk about QA feedback\
+    \ on the engineer's performance for case [Extracted Case Tracking ID]. The goal is to find and fix any gaps.\n    * What:\
+    \ **Write a short summary** of the main topics and exact areas of performance based on the extracted 'missed attributes'\
+    \ or 'partial scores' from the QA feedback.\n    * When: **[Explicitly Provided 1:1 Coaching Session Date] (Default Time:\
+    \ 45-60 min duration)**\n    * How: Explain that the meeting used a helpful and teamwork-based approach. It focused on\
+    \ direct feedback and personal support.\n\n    ---\n\n    2. Session Information\n    * SE Name: [Extracted Engineer's\
+    \ Full Name]\n    * SE Email: [Extracted Engineer's Email Address, if available]\n    * Department: [Extracted Department\
+    \ from QA email, or \"Dynamics 365 ERP Customer Services and Support\"]\n    * Date: **[Explicitly Provided 1:1 Coaching\
+    \ Session Date]**\n    * Time: **45-60 min duration**\n\n    ---\n\n    3. Quick Analysis\n    * Good Points: **Write\
+    \ a very short paragraph** summarizing the positive feedback.\n    * Areas to Improve: **Write a very short paragraph**\
+    \ identifying the main areas needing improvement from the QA feedback. Briefly state each problem. (Example: \"QA feedback\
+    \ showed two main areas to improve: [Main Area 1] had [brief problem 1]. Also, [Main Area 2] showed [brief problem 2].\"\
+    )\n    * Main Reasons: **Make a simple list of 2-3 possible reasons** for each improvement area. (Example: \"Not enough\
+    \ training; Rushed work; Did not follow all steps.\")\n    * What to Learn/Do: **Make a simple list of 2-3 specific skills\
+    \ or actions** to fix the improvement areas. (Example: \"Learn new process; Practice a skill; Get help from a peer.\"\
+    )\n    * First Steps (Action Plan): **Make a simple list of 2-3 first steps** the engineer will take. Each step should\
+    \ be clear. (Example: \"Review guide on [Topic]; Finish [Training]; Talk to [Peer] for advice.\")\n\n    ---\n\n    4.\
+    \ Engineer Success Action Plan\n    * SMART Goal 1: **Write a detailed paragraph for the first SMART goal** for the engineer's\
+    \ improvement. Include specific details like: \"Goal 1: By [Target Date, e.g., 6 weeks from coaching date], [Engineer\
+    \ Name] will [Specific Action, e.g., consistently apply the new documentation process in all cases], measured by [Clear\
+    \ Metric, e.g., achieving 95% compliance in next 3 QA audits]. This goal is possible because [Reason, e.g., new training\
+    \ materials are available] and important because [Impact, e.g., it will directly lead to higher customer satisfaction].\"\
+    \n    * SMART Goal 2: **Write a detailed paragraph for the second SMART goal** for the engineer's improvement. Include\
+    \ specific details like: \"Goal 2: At the same time, within [Timeframe, e.g., next month], [Engineer Name] will [Specific\
+    \ Action, e.g., proactively ask for feedback on customer communication from 3 different peers], verified by [Clear Metric,\
+    \ e.g., documenting feedback sessions and showing changes based on suggestions], which is possible because [Reason, e.g.,\
+    \ dedicated time is set for self-development] and directly important to [Impact, e.g., improving team efficiency and reducing\
+    \ callbacks].\"\n    * Commitment: **Engineer agrees verbally** to follow the action plan and meet deadlines.\n\n    ---\n\
+    \n    5. Manager Success Action Plan\n    * Action 1 (SMART): **[Manager's first specific, measurable, achievable, relevant,\
+    \ and time-bound action to support the engineer (e.g., provide training, schedule follow-ups, offer resources)].**\n \
+    \   * Action 2 (SMART): **[Manager's second specific, measurable, achievable, relevant, and time-bound support action,\
+    \ if necessary (e.g., regular check-ins, direct mentorship)].**\n\n    ---\n\n    6. Follow-up and Acknowledgement\n \
+    \   * Follow-up Date: **[Calculated Date: Two weeks from the Provided 1:1 Coaching Session Date]**\n    * Acknowledgement:\
+    \ **Engineer agrees** they understand the feedback and will follow the action plan.\n\n    ---\n\"input_I_will_provide\"\
+    : \"The full content of a QA team's feedback email. This email is the sole source for all performance data (engineer's\
+    \ name, case tracking ID, positive feedback, and missed attributes). **AND the explicit date of the 1:1 coaching session\
+    \ (e.g., 'June 15, 2025').**\",\n\"CRITICAL OUTPUT FORMAT: Use the HTML_OUTPUT_TEMPLATE below only as a reference for\
+    \ section order and heading colors. Do NOT output <!DOCTYPE>, <html>, <head>, <style>, or <body> tags. Output ONLY an\
+    \ inline HTML fragment (starting with a single wrapping <div>) using inline style=\\\"...\\\" attributes on each h1/h2/h3/p/ul/li/strong\
+    \ element to reproduce the reference template's colors and spacing - no CSS classes, no separate stylesheet. The output\
+    \ MUST be ONLY this inline HTML fragment, with all dynamic content inserted into the correct sections, and without any\
+    \ markdown backticks, code block indicators, or other text before or after the HTML.\"\n\"html_output_template_reference_only\"\
+    : \"<!DOCTYPE html>\\\\n<html lang=\\\\\"en\\\\\">\\\\n<head>\\\\n    <meta charset=\\\\\"UTF-8\\\\\">\\\\n    <meta name=\\\
+    \\\"viewport\\\\\" content=\\\\\"width=device-width, initial-scale=1.0\\\\\">\\\\n    <title>1:1 Coaching Document</title>\\\
+    \\n    <style>\\\\n        body {\\\\n            font-family: 'Calibri', 'Inter', sans-serif;\\\\n            line-height:\
+    \ 1.6;\\\\n            color: #333;\\\\n            background-color: #f8f9fa;\\\\n            margin: 0;\\\\n       \
+    \     padding: 20px;\\\\n        }\\\\n        .container {\\\\n            max-width: 900px;\\\\n            margin:\
+    \ 20px auto;\\\\n            background: #ffffff;\\\\n            padding: 30px;\\\\n            border-radius: 12px;\\\
+    \\n            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);\\\\n            border-top: 6px solid #1a73e8; /* Google Blue\
+    \ */\\\\n        }\\\\n        h1 {\\\\n            font-size: 2.2em;\\\\n            color: #1a73e8;\\\\n           \
+    \ text-align: center;\\\\n            margin-bottom: 25px;\\\\n            padding-bottom: 10px;\\\\n            border-bottom:\
+    \ 2px solid #e0e0e0;\\\\n        }\\\\n        h2 {\\\\n            font-size: 1.8em;\\\\n            color: #34a853;\
+    \ /* Google Green */\\\\n            margin-top: 35px;\\\\n            padding-bottom: 8px;\\\\n            border-bottom:\
+    \ 1px solid #e0e0e0;\\\\n        }\\\\n        h3 {\\\\n            font-size: 1.4em;\\\\n            color: #f9ab00;\
+    \ /* Google Yellow */\\\\n            margin-top: 25px;\\\\n            padding-bottom: 5px;\\\\n            border-bottom:\
+    \ 1px dotted #e0e0e0;\\\\n        }\\\\n        p, ul, ol {\\\\n            margin-bottom: 15px;\\\\n        }\\\\n  \
+    \      ul {\\\\n            list-style-type: disc;\\\\n            margin-left: 25px;\\\\n        }\\\\n        ol {\\\
+    \\n            list-style-type: decimal;\\\\n            margin-left: 25px;\\\\n        }\\\\n        li {\\\\n      \
+    \      margin-bottom: 8px;\\\\n        }\\\\n        .section-content {\\\\n            padding: 15px 0;\\\\n        }\\\
+    \\n        .placeholder {\\\\n            color: #dc3545; /* Bootstrap Red */\\\\n            font-weight: bold;\\\\n\
+    \            background-color: #ffebeb;\\\\n            padding: 3px 6px;\\\\n            border-radius: 4px;\\\\n   \
+    \     }\\\\n        .radical-candor-example {\\\\n            background-color: #e6f7ff;\\\\n            border-left:\
+    \ 5px solid #1a73e8;\\\\n            padding: 15px;\\\\n            margin: 20px 0;\\\\n            border-radius: 8px;\\\
+    \\n            font-style: italic;\\\\n            color: #0d47a1;\\\\n        }\\\\n        .coaching-script {\\\\n \
+    \           background-color: #f0f4f8;\\\\n            border: 1px solid #d1e0ed;\\\\n            padding: 20px;\\\\n\
+    \            border-radius: 10px;\\\\n            margin-top: 30px;\\\\n        }\\\\n        .script-segment {\\\\n \
+    \           margin-bottom: 20px;\\\\n            padding-bottom: 15px;\\\\n            border-bottom: 1px dashed #cce0f0;\\\
+    \\n        }\\\\n        .script-segment:last-child {\\\\n            border-bottom: none;\\\\n            margin-bottom:\
+    \ 0;\\\\n            padding-bottom: 0;\\\\n        }\\\\n        .script-heading {\\\\n            font-weight: bold;\\\
+    \\n            color: #4285f4; /* Google Blue */\\\\n            margin-bottom: 10px;\\\\n        }\\\\n        .footer\
+    \ {\\\\n            text-align: center;\\\\n            margin-top: 40px;\\\\n            font-size: 0.85em;\\\\n    \
+    \        color: #777;\\\\n            padding-top: 20px;\\\\n            border-top: 1px solid #e0e0e0;\\\\n        }\\\
+    \\n    </style>\\\\n</head>\\\\n<body>\\\\n    <div class=\\\\\"container\\\\\">\\\\n        <h1>1:1 Coaching Document</h1>\\\
+    \\n\\\\n        <h2>1. Coaching Session Overview</h2>\\\\n        <div class=\\\\\"section-content\\\\\">\\\\n       \
+    \     <p><strong>Why:</strong> The session addressed feedback from the QA team on the engineer's performance for case\
+    \ [Extracted Case Tracking ID], aiming to identify and improve recognized gaps.</p>\\\\n            <p><strong>What:</strong>\
+    \ [Summary of core topics and specific areas of performance based on the extracted 'missed attributes' or 'partial scores'\
+    \ from the QA feedback]</p>\\\\n            <p><strong>When:</strong> [Explicitly Provided 1:1 Coaching Session Date]\
+    \ (Default Time: 45-60 min duration)</p>\\\\n            <p><strong>How:</strong> The intended methodology was a constructive,\
+    \ collaborative, and approach focused on direct feedback and personal support.</p>\\\\n        </div>\\\\n\\\\n      \
+    \  <h2>2. Session Information</h2>\\\\n        <div class=\\\\\"section-content\\\\\">\\\\n            <p><strong>SE Name:</strong>\
+    \ [Extracted Engineer's Full Name]</p>\\\\n            <p><strong>SE Email:</strong> [Extracted Engineer's Email Address,\
+    \ if available in QA email]</p>\\\\n            <p><strong>Department:</strong> [Extracted Department from QA email, defaults\
+    \ to \\\\\"Dynamics 365 ERP Customer Services and Support\\\\\" if not specified]</p>\\\\n            <p><strong>Date:</strong>\
+    \ [Explicitly Provided 1:1 Coaching Session Date]</p>\\\\n            <p><strong>Time:</strong> 45-60 min duration</p>\\\
+    \\n        </div>\\\\n\\\\n        <h2>3. Quick Analysis</h2>\\\\n        <div class=\\\\\"section-content\\\\\">\\\\\
+    n            <h3>Good Points:</h3>\\\\n            <p>[Concise, single-paragraph summary of positive observations extracted\
+    \ from the QA email.]</p>\\\\n\\\\n            <h3>Areas to Improve:</h3>\\\\n            <p>[Concise, single-paragraph\
+    \ summary identifying main areas for improvement, with brief core issues. Example structure: \\\\\"QA feedback showed\
+    \ two main areas to improve: [Main Area 1] had [brief problem 1]. Also, [Main Area 2] showed [brief problem 2].\\\\\"\
+    ]</p>\\\\n            \\\\n            <h3>Main Reasons:</h3>\\\\n            <ul>\\\\n                [Simple list of\
+    \ 2-3 possible reasons for each improvement area. Example: \"Not enough training; Rushed work; Did not follow all steps.\"\
+    ]\\\\n            </ul>\\\\n\\\\n            <h3>What to Learn/Do:</h3>\\\\n            <ul>\\\\n                [Simple\
+    \ list of 2-3 specific skill/knowledge gaps corresponding to the 'missed attributes'. Example: \"Learn new process; Practice\
+    \ a skill; Get help from a peer.\"]\\\\n            </ul>\\\\n            \\\\n            <h3>First Steps (Action Plan):</h3>\\\
+    \\n            <ul>\\\\n                [Simple list of 2-3 concrete, actionable steps the engineer will commit to taking.\
+    \ Example: \"Review guide on [Topic]; Finish [Training]; Talk to [Peer] for advice.\"]\\\\n            </ul>\\\\n    \
+    \    </div>\\\\n\\\\n        <h2>4. Engineer Success Action Plan</h2>\\\\n        <div class=\\\\\"section-content\\\\\
+    \">\\\\n            <h3>SMART Goal 1:</h3>\\\\n            <p>[Generated single paragraph stating the first SMART goal\
+    \ for the engineer's improvement. Example structure: \\\\\"Goal 1: By [Target Date, e.g., 6 weeks from coaching date],\
+    \ [Engineer Name] will [Specific Action, e.g., consistently apply the new documentation process in all cases], measured\
+    \ by [Clear Metric, e.g., achieving 95% compliance in next 3 QA audits]. This goal is possible because [Reason, e.g.,\
+    \ new training materials are available] and important because [Impact, e.g., it will directly lead to higher customer\
+    \ satisfaction].\\\\\"]</p>\\\\n            \\\\n            <h3>SMART Goal 2:</h3>\\\\n            <p>[Generated single\
+    \ paragraph stating the second SMART goal for the engineer's improvement. Example structure: \\\\\"Goal 2: At the same\
+    \ time, within [Timeframe, e.g., next month], [Engineer Name] will [Specific Action, e.g., proactively ask for feedback\
+    \ on customer communication from 3 different peers], verified by [Clear Metric, e.g., documenting feedback sessions and\
+    \ showing changes based on suggestions], which is possible because [Reason, e.g., dedicated time is set for self-development]\
+    \ and directly important to [Impact, e.g., improving team efficiency and reducing callbacks].\\\\\"]</p>\\\\n        \
+    \    \\\\n            <p><strong>Commitment:</strong> Engineer agrees verbally to follow the action plan and meet deadlines.</p>\\\
+    \\n        </div>\\\\n\\\\n        <h2>5. Manager Success Action Plan</h2>\\\\n        <div class=\\\\\"section-content\\\
+    \\\">\\\\n            <p><strong>Action 1 (SMART):</strong> [Manager's first specific, measurable, achievable, relevant,\
+    \ and time-bound action to support the engineer (e.g., provide training, schedule follow-ups, offer resources)].</p>\\\
+    \\n            <p><strong>Action 2 (SMART):</strong> [Manager's second specific, measurable, achievable, relevant, and\
+    \ time-bound support action, if necessary (e.g., regular check-ins, direct mentorship)].</p>\\\\n        </div>\\\\n\\\
+    \\n        <h2>6. Follow-up and Acknowledgement</h2>\\\\n        <div class=\\\\\"section-content\\\\\">\\\\n        \
+    \    <p><strong>Follow-up Date:</strong> [Calculated Date: Two weeks from the Provided 1:1 Coaching Session Date]</p>\\\
+    \\n            <p><strong>Acknowledgement:</strong> Engineer agrees they understand the feedback and will follow the action\
+    \ plan.</p>\\\\n        </div>\\\\n\\\\n        <div class=\\\\\"footer\\\\\">\\\\n            \\\\n        </div>\\\\\
+    n    </div>\\\\n</body>\\\\n</html>`\n};\n"
+  language: typescript
+template:
+  content: "<div class=\"app-container\">\n\t<header class=\"app-header\">\n\t\t<h1 class=\"app-title\">AI Assistant</h1>\n\
+    \t</header>\n\n\t<main class=\"main-content\">\n\t\t<!-- Crafting & Editing Section -->\n\t\t<section class=\"section-card\"\
+    >\n\t\t\t<div class=\"section-header\">\n\t\t\t\t<span class=\"section-icon\">✒️</span>\n\t\t\t\t<h2 class=\"section-title\"\
+    >Crafting & Editing</h2>\n\t\t\t</div>\n\t\t\t<div class=\"button-grid\">\n\t\t\t\t<button id=\"writeEmailFromSelectedText\"\
+    \ class=\"action-btn\">\n                    <span class=\"btn-icon\">\U0001F4DD</span>\n                    <span class=\"\
+    btn-text\">Write from selected text</span>\n                </button>\n\t\t\t\t<button id=\"fineTuneSelectedEmail\" class=\"\
+    action-btn\">\n                    <span class=\"btn-icon\">⚡</span>\n                    <span class=\"btn-text\">Fine\
+    \ tune</span>\n                </button>\n\t\t\t</div>\n\t\t</section>\n\n\t\t<!-- Daily Tools Section -->\n\t\t<section\
+    \ class=\"section-card\">\n\t\t\t<div class=\"section-header\">\n\t\t\t\t<span class=\"section-icon\">\U0001F4C8</span>\n\
+    \t\t\t\t<h2 class=\"section-title\">Daily Tools</h2>\n\t\t\t</div>\n\t\t\t<div class=\"button-grid\">\n\t\t\t\t<button\
+    \ id=\"analyseWhatToDo\" class=\"action-btn\">\n                    <span class=\"btn-icon\">\U0001F60A</span>\n     \
+    \               <span class=\"btn-text\">Analyse What to do</span>\n                </button>\n\n\t\t\t\t<button id=\"\
+    analyzeEmailTimeline\" class=\"action-btn\">\n                    <span class=\"btn-icon\">\U0001F4CA</span>\n       \
+    \             <span class=\"btn-text\">Timeline Analysis</span>\n                </button>\n\n\t\t\t\t<button id=\"prepareCoachingDocument\"\
+    \ class=\"action-btn\">\n                    <span class=\"btn-icon\">\U0001F62D</span>\n                    <span class=\"\
+    btn-text\">Prepare Coaching Document</span>\n                </button>\n\t\t\t\t<button id=\"coachingDocument\" class=\"\
+    action-btn\">\n                    <span class=\"btn-icon\">\U0001F4C4</span>\n                    <span class=\"btn-text\"\
+    >Coaching Document</span>\n                </button>\n\t\t\t</div>\n\t\t</section>\n\n\t\t<!-- Others Section -->\n\t\t\
+    <section class=\"section-card\">\n\t\t\t<div class=\"section-header\">\n\t\t\t\t<span class=\"section-icon\">\U0001F50D\
+    </span>\n\t\t\t\t<h2 class=\"section-title\">Others</h2>\n\t\t\t</div>\n\t\t\t<div class=\"button-grid\">\n\t\t\t\t<button\
+    \ id=\"summarizeEmailThread\" class=\"action-btn\">\n                    <span class=\"btn-icon\">\U0001F4DD</span>\n\
+    \                    <span class=\"btn-text\">Summarize Email</span>\n                </button>\n\t\t\t</div>\n\t\t</section>\n\
+    \n\t\t<!-- Custom AI Request Section -->\n\t\t<section class=\"section-card\">\n\t\t\t<div class=\"section-header\">\n\
+    \t\t\t\t<span class=\"section-icon\">\U0001F916</span>\n\t\t\t\t<h2 class=\"section-title\">Custom AI Request</h2>\n\t\
+    \t\t</div>\n\t\t\t<div class=\"custom-request-container\">\n\t\t\t\t<textarea id=\"textArea\" class=\"custom-textarea\"\
+    \ placeholder=\"Enter your custom AI request here...\" rows=\"4\"></textarea>\n\t\t\t\t<button id=\"sendCustomRequest\"\
+    \ class=\"action-btn custom-btn\">\n                    <span class=\"btn-icon\">\U0001F680</span>\n                 \
+    \   <span class=\"btn-text\">Send Custom Request</span>\n                </button>\n\t\t\t</div>\n\t\t</section>\n\t</main>\n\
+    \n\t<!-- Theme Switcher at Bottom -->\n\t<footer class=\"theme-footer\">\n\t\t<label for=\"themeSelector\" class=\"theme-label\"\
+    >Theme</label>\n\t\t<select id=\"themeSelector\" class=\"theme-dropdown\">\n\t\t\t<option value=\"neomorphism\">☁️ Neumorphism\
+    \ Soft</option>\n\t\t\t<option value=\"glassmorphism\">✨ Glassmorphism Light</option>\n\t\t\t<option value=\"glass-dark\"\
+    >\U0001F319 Glassmorphism Dark</option>\n\t\t\t<option value=\"glass-purple\">\U0001F49C Glassmorphism Purple</option>\n\
+    \t\t\t<option value=\"aurora\">\U0001F30C Aurora Gradient</option>\n\t\t\t<option value=\"claymorphism\">\U0001F3A8 Claymorphism</option>\n\
+    \t\t\t<option value=\"cyberpunk\">⚡ Cyberpunk Neon</option>\n\t\t\t<option value=\"creative\">\U0001F496 Creative Agency</option>\n\
+    \t\t\t<option value=\"minimal-saas\">\U0001F4F1 Minimal SaaS</option>\n\t\t\t<option value=\"ocean\">\U0001F30A Ocean\
+    \ Deep</option>\n\t\t</select>\n\t</footer>\n</div>\n\n<!-- Reply-Ready Popup: shown after AI generation completes, so\
+    \ the native\n     reply-all form is opened on a fresh user click (avoids the browser\n     gesture-token expiring during\
+    \ the AI network delay). Reuses the modal\n     overlay/content styling for a centered, unmissable popup. -->\n<div class=\"\
+    modal-overlay reply-ready-overlay\" id=\"replyReadyOverlay\">\n\t<div class=\"modal-content reply-ready-popup\">\n\t\t\
+    <div class=\"modal-header\">\n\t\t\t<h3 class=\"modal-title\">\U0001F4E8 Draft Ready</h3>\n\t\t</div>\n\t\t<div class=\"\
+    modal-body\">\n\t\t\t<p id=\"replyReadyText\">Your AI response is ready.</p>\n\t\t</div>\n\t\t<div class=\"modal-footer\"\
+    >\n\t\t\t<button id=\"dismissReplyBanner\" class=\"btn btn--outline\">Dismiss</button>\n\t\t\t<button id=\"openReplyDraftBtn\"\
+    \ class=\"btn btn--primary\">\U0001F4E8 Open Reply Draft</button>\n\t\t</div>\n\t</div>\n</div>\n\n<!-- Modal -->\n<div\
+    \ class=\"modal-overlay\" id=\"modalOverlay\">\n\t<div class=\"modal-content\">\n\t\t<div class=\"modal-header\">\n\t\t\
+    \t<h3 class=\"modal-title\" id=\"modalTitle\">AI Response</h3>\n\t\t\t<button class=\"modal-close\" id=\"modalClose\"\
+    >&times;</button>\n\t\t</div>\n\t\t<div class=\"modal-body\">\n\t\t\t<p id=\"modalMessage\">Processing your request...</p>\n\
+    \t\t</div>\n\t\t<div class=\"modal-footer\">\n\t\t\t<button class=\"btn btn--primary\" id=\"modalOk\">OK</button>\n\t\t\
+    </div>\n\t</div>\n</div>\n"
+  language: html
+style:
+  content: ":root {\n  /* Colors */\n  --color-background: rgba(252, 252, 249, 1);\n  --color-surface: rgba(255, 255, 253,\
+    \ 1);\n  --color-text: rgba(19, 52, 59, 1);\n  --color-text-secondary: rgba(98, 108, 113, 1);\n  --color-primary: rgba(33,\
+    \ 128, 141, 1);\n  --color-primary-hover: rgba(29, 116, 128, 1);\n  --color-primary-active: rgba(26, 104, 115, 1);\n \
+    \ --color-secondary: rgba(94, 82, 64, 0.12);\n  --color-secondary-hover: rgba(94, 82, 64, 0.2);\n  --color-secondary-active:\
+    \ rgba(94, 82, 64, 0.25);\n  --color-border: rgba(94, 82, 64, 0.2);\n  --color-btn-primary-text: rgba(252, 252, 249, 1);\n\
+    \  --color-card-border: rgba(94, 82, 64, 0.12);\n  --color-card-border-inner: rgba(94, 82, 64, 0.12);\n  --color-error:\
+    \ rgba(192, 21, 47, 1);\n  --color-success: rgba(33, 128, 141, 1);\n  --color-warning: rgba(168, 75, 47, 1);\n  --color-info:\
+    \ rgba(98, 108, 113, 1);\n  --color-focus-ring: rgba(33, 128, 141, 0.4);\n  --color-select-caret: rgba(19, 52, 59, 0.8);\n\
+    \n  /* Common style patterns */\n  --focus-ring: 0 0 0 3px var(--color-focus-ring);\n  --focus-outline: 2px solid var(--color-primary);\n\
+    \  --status-bg-opacity: 0.15;\n  --status-border-opacity: 0.25;\n  --select-caret-light: url(\"data:image/svg+xml,%3Csvg\
+    \ xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23134252' stroke-width='2'\
+    \ stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\");\n\
+    \  --select-caret-dark: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0\
+    \ 0 24 24' fill='none' stroke='%23f5f5f5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline\
+    \ points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\");\n\n  /* RGB versions for opacity control */\n  --color-success-rgb:\
+    \ 33, 128, 141;\n  --color-error-rgb: 192, 21, 47;\n  --color-warning-rgb: 168, 75, 47;\n  --color-info-rgb: 98, 108,\
+    \ 113;\n\n  /* Typography */\n  --font-family-base: \"Aptos\", \"Segoe UI\", -apple-system, BlinkMacSystemFont, Roboto,\
+    \ sans-serif;\n  --font-family-mono: \"Berkeley Mono\", ui-monospace, SFMono-Regular, Menlo,\n    Monaco, Consolas, monospace;\n\
+    \  --font-size-xs: 11px;\n  --font-size-sm: 12px;\n  --font-size-base: 14px;\n  --font-size-md: 14px;\n  --font-size-lg:\
+    \ 16px;\n  --font-size-xl: 18px;\n  --font-size-2xl: 20px;\n  --font-size-3xl: 24px;\n  --font-size-4xl: 30px;\n  --font-weight-normal:\
+    \ 400;\n  --font-weight-medium: 500;\n  --font-weight-semibold: 550;\n  --font-weight-bold: 600;\n  --line-height-tight:\
+    \ 1.2;\n  --line-height-normal: 1.5;\n  --letter-spacing-tight: -0.01em;\n\n  /* Spacing */\n  --space-0: 0;\n  --space-1:\
+    \ 1px;\n  --space-2: 2px;\n  --space-4: 4px;\n  --space-6: 6px;\n  --space-8: 8px;\n  --space-10: 10px;\n  --space-12:\
+    \ 12px;\n  --space-16: 16px;\n  --space-20: 20px;\n  --space-24: 24px;\n  --space-32: 32px;\n\n  /* Border Radius */\n\
+    \  --radius-sm: 6px;\n  --radius-base: 8px;\n  --radius-md: 10px;\n  --radius-lg: 12px;\n  --radius-full: 9999px;\n\n\
+    \  /* Shadows */\n  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.02);\n  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px\
+    \ rgba(0, 0, 0, 0.02);\n  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.04),\n    0 2px 4px -1px rgba(0, 0, 0, 0.02);\n\
+    \  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.04),\n    0 4px 6px -2px rgba(0, 0, 0, 0.02);\n  --shadow-inset-sm: inset\
+    \ 0 1px 0 rgba(255, 255, 255, 0.15),\n    inset 0 -1px 0 rgba(0, 0, 0, 0.03);\n\n  /* Animation */\n  --duration-fast:\
+    \ 150ms;\n  --duration-normal: 250ms;\n  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);\n\n  /* Layout */\n  --container-sm:\
+    \ 640px;\n  --container-md: 768px;\n  --container-lg: 1024px;\n  --container-xl: 1280px;\n}\n\n/* Dark mode colors */\n\
+    @media (prefers-color-scheme: dark) {\n  :root {\n    --color-background: rgba(31, 33, 33, 1);\n    --color-surface: rgba(38,\
+    \ 40, 40, 1);\n    --color-text: rgba(245, 245, 245, 1);\n    --color-text-secondary: rgba(167, 169, 169, 0.7);\n    --color-primary:\
+    \ rgba(50, 184, 198, 1);\n    --color-primary-hover: rgba(45, 166, 178, 1);\n    --color-primary-active: rgba(41, 150,\
+    \ 161, 1);\n    --color-secondary: rgba(119, 124, 124, 0.15);\n    --color-secondary-hover: rgba(119, 124, 124, 0.25);\n\
+    \    --color-secondary-active: rgba(119, 124, 124, 0.3);\n    --color-border: rgba(119, 124, 124, 0.3);\n    --color-error:\
+    \ rgba(255, 84, 89, 1);\n    --color-success: rgba(50, 184, 198, 1);\n    --color-warning: rgba(230, 129, 97, 1);\n  \
+    \  --color-info: rgba(167, 169, 169, 1);\n    --color-focus-ring: rgba(50, 184, 198, 0.4);\n    --color-btn-primary-text:\
+    \ rgba(19, 52, 59, 1);\n    --color-card-border: rgba(119, 124, 124, 0.2);\n    --color-card-border-inner: rgba(119, 124,\
+    \ 124, 0.15);\n    --shadow-inset-sm: inset 0 1px 0 rgba(255, 255, 255, 0.1),\n      inset 0 -1px 0 rgba(0, 0, 0, 0.15);\n\
+    \    --button-border-secondary: rgba(119, 124, 124, 0.2);\n    --color-border-secondary: rgba(119, 124, 124, 0.2);\n \
+    \   --color-select-caret: rgba(245, 245, 245, 0.8);\n\n    /* Common style patterns - updated for dark mode */\n    --focus-ring:\
+    \ 0 0 0 3px var(--color-focus-ring);\n    --focus-outline: 2px solid var(--color-primary);\n    --status-bg-opacity: 0.15;\n\
+    \    --status-border-opacity: 0.25;\n    --select-caret-light: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'\
+    \ width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23134252' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline\
+    \ points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\");\n    --select-caret-dark: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'\
+    \ width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f5f5f5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline\
+    \ points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\");\n\n    /* RGB versions for dark mode */\n    --color-success-rgb:\
+    \ 50, 184, 198;\n    --color-error-rgb: 255, 84, 89;\n    --color-warning-rgb: 230, 129, 97;\n    --color-info-rgb: 167,\
+    \ 169, 169;\n  }\n}\n\n/* Data attribute for manual theme switching */\n[data-color-scheme=\"dark\"] {\n  --color-background:\
+    \ rgba(31, 33, 33, 1);\n  --color-surface: rgba(38, 40, 40, 1);\n  --color-text: rgba(245, 245, 245, 1);\n  --color-text-secondary:\
+    \ rgba(167, 169, 169, 0.7);\n  --color-primary: rgba(50, 184, 198, 1);\n  --color-primary-hover: rgba(45, 166, 178, 1);\n\
+    \  --color-primary-active: rgba(41, 150, 161, 1);\n  --color-secondary: rgba(119, 124, 124, 0.15);\n  --color-secondary-hover:\
+    \ rgba(119, 124, 124, 0.25);\n  --color-secondary-active: rgba(119, 124, 124, 0.3);\n  --color-border: rgba(119, 124,\
+    \ 124, 0.3);\n  --color-error: rgba(255, 84, 89, 1);\n  --color-success: rgba(50, 184, 198, 1);\n  --color-warning: rgba(230,\
+    \ 129, 97, 1);\n  --color-info: rgba(167, 169, 169, 1);\n  --color-focus-ring: rgba(50, 184, 198, 0.4);\n  --color-btn-primary-text:\
+    \ rgba(19, 52, 59, 1);\n  --color-card-border: rgba(119, 124, 124, 0.15);\n  --color-card-border-inner: rgba(119, 124,\
+    \ 124, 0.15);\n  --shadow-inset-sm: inset 0 1px 0 rgba(255, 255, 255, 0.1),\n    inset 0 -1px 0 rgba(0, 0, 0, 0.15);\n\
+    \  --color-border-secondary: rgba(119, 124, 124, 0.2);\n  --color-select-caret: rgba(245, 245, 245, 0.8);\n\n  /* Common\
+    \ style patterns - updated for dark mode */\n  --focus-ring: 0 0 0 3px var(--color-focus-ring);\n  --focus-outline: 2px\
+    \ solid var(--color-primary);\n  --status-bg-opacity: 0.15;\n  --status-border-opacity: 0.25;\n  --select-caret-light:\
+    \ url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none'\
+    \ stroke='%23134252' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18\
+    \ 9'%3E%3C/polyline%3E%3C/svg%3E\");\n  --select-caret-dark: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'\
+    \ width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f5f5f5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline\
+    \ points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\");\n\n  /* RGB versions for dark mode */\n  --color-success-rgb:\
+    \ 50, 184, 198;\n  --color-error-rgb: 255, 84, 89;\n  --color-warning-rgb: 230, 129, 97;\n  --color-info-rgb: 167, 169,\
+    \ 169;\n}\n\n[data-color-scheme=\"light\"] {\n  --color-background: rgba(252, 252, 249, 1);\n  --color-surface: rgba(255,\
+    \ 255, 253, 1);\n  --color-text: rgba(19, 52, 59, 1);\n  --color-text-secondary: rgba(98, 108, 113, 1);\n  --color-primary:\
+    \ rgba(33, 128, 141, 1);\n  --color-primary-hover: rgba(29, 116, 128, 1);\n  --color-primary-active: rgba(26, 104, 115,\
+    \ 1);\n  --color-secondary: rgba(94, 82, 64, 0.12);\n  --color-secondary-hover: rgba(94, 82, 64, 0.2);\n  --color-secondary-active:\
+    \ rgba(94, 82, 64, 0.25);\n  --color-border: rgba(94, 82, 64, 0.2);\n  --color-btn-primary-text: rgba(252, 252, 249, 1);\n\
+    \  --color-card-border: rgba(94, 82, 64, 0.12);\n  --color-card-border-inner: rgba(94, 82, 64, 0.12);\n  --color-error:\
+    \ rgba(192, 21, 47, 1);\n  --color-success: rgba(33, 128, 141, 1);\n  --color-warning: rgba(168, 75, 47, 1);\n  --color-info:\
+    \ rgba(98, 108, 113, 1);\n  --color-focus-ring: rgba(33, 128, 141, 0.4);\n\n  /* RGB versions for light mode */\n  --color-success-rgb:\
+    \ 33, 128, 141;\n  --color-error-rgb: 192, 21, 47;\n  --color-warning-rgb: 168, 75, 47;\n  --color-info-rgb: 98, 108,\
+    \ 113;\n}\n\n/* Base styles */\nhtml {\n  font-size: var(--font-size-base);\n  font-family: var(--font-family-base);\n\
+    \  line-height: var(--line-height-normal);\n  color: var(--color-text);\n  background-color: var(--color-background);\n\
+    \  -webkit-font-smoothing: antialiased;\n  box-sizing: border-box;\n}\n\nbody {\n  margin: 0;\n  padding: 0;\n}\n\n*,\n\
+    *::before,\n*::after {\n  box-sizing: inherit;\n}\n\n/* Typography */\nh1,\nh2,\nh3,\nh4,\nh5,\nh6 {\n  margin: 0;\n \
+    \ font-weight: var(--font-weight-semibold);\n  line-height: var(--line-height-tight);\n  color: var(--color-text);\n \
+    \ letter-spacing: var(--letter-spacing-tight);\n}\n\nh1 {\n  font-size: var(--font-size-4xl);\n}\nh2 {\n  font-size: var(--font-size-3xl);\n\
+    }\nh3 {\n  font-size: var(--font-size-2xl);\n}\nh4 {\n  font-size: var(--font-size-xl);\n}\nh5 {\n  font-size: var(--font-size-lg);\n\
+    }\nh6 {\n  font-size: var(--font-size-md);\n}\n\np {\n  margin: 0 0 var(--space-16) 0;\n}\n\na {\n  color: var(--color-primary);\n\
+    \  text-decoration: none;\n  transition: color var(--duration-fast) var(--ease-standard);\n}\n\na:hover {\n  color: var(--color-primary-hover);\n\
+    }\n\ncode,\npre {\n  font-family: var(--font-family-mono);\n  font-size: calc(var(--font-size-base) * 0.95);\n  background-color:\
+    \ var(--color-secondary);\n  border-radius: var(--radius-sm);\n}\n\ncode {\n  padding: var(--space-1) var(--space-4);\n\
+    }\n\npre {\n  padding: var(--space-16);\n  margin: var(--space-16) 0;\n  overflow: auto;\n  border: 1px solid var(--color-border);\n\
+    }\n\npre code {\n  background: none;\n  padding: 0;\n}\n\n/* Buttons */\n.btn {\n  display: inline-flex;\n  align-items:\
+    \ center;\n  justify-content: center;\n  padding: var(--space-8) var(--space-16);\n  border-radius: var(--radius-base);\n\
+    \  font-size: var(--font-size-base);\n  font-weight: 500;\n  line-height: 1.5;\n  cursor: pointer;\n  transition: all\
+    \ var(--duration-normal) var(--ease-standard);\n  border: none;\n  text-decoration: none;\n  position: relative;\n}\n\n\
+    .btn:focus-visible {\n  outline: none;\n  box-shadow: var(--focus-ring);\n}\n\n.btn--primary {\n  background: var(--color-primary);\n\
+    \  color: var(--color-btn-primary-text);\n}\n\n.btn--primary:hover {\n  background: var(--color-primary-hover);\n}\n\n\
+    .btn--primary:active {\n  background: var(--color-primary-active);\n}\n\n.btn--secondary {\n  background: var(--color-secondary);\n\
+    \  color: var(--color-text);\n}\n\n.btn--secondary:hover {\n  background: var(--color-secondary-hover);\n}\n\n.btn--secondary:active\
+    \ {\n  background: var(--color-secondary-active);\n}\n\n.btn--outline {\n  background: transparent;\n  border: 1px solid\
+    \ var(--color-border);\n  color: var(--color-text);\n}\n\n.btn--outline:hover {\n  background: var(--color-secondary);\n\
+    }\n\n.btn--sm {\n  padding: var(--space-4) var(--space-12);\n  font-size: var(--font-size-sm);\n  border-radius: var(--radius-sm);\n\
+    }\n\n.btn--lg {\n  padding: var(--space-10) var(--space-20);\n  font-size: var(--font-size-lg);\n  border-radius: var(--radius-md);\n\
+    }\n\n.btn--full-width {\n  width: 100%;\n}\n\n.btn:disabled {\n  opacity: 0.5;\n  cursor: not-allowed;\n}\n\n/* Reply-Ready\
+    \ Popup (two-step flow: AI generation caches the draft here,\n   then the user's fresh click on \"Open Reply Draft\" invokes\
+    \ the native\n   Outlook API within a valid user-gesture window). Reuses .modal-overlay/\n   .modal-content for a centered\
+    \ popup, with a success-colored accent and\n   a subtle pop-in/pulse to draw attention. */\n.reply-ready-popup {\n  border-top:\
+    \ 4px solid var(--color-success);\n  animation: reply-ready-pop 0.35s var(--ease-standard);\n}\n\n.reply-ready-overlay\
+    \ .modal-title {\n  color: var(--color-success);\n}\n\n@keyframes reply-ready-pop {\n  0% {\n    transform: scale(0.85);\n\
+    \    opacity: 0;\n  }\n  60% {\n    transform: scale(1.03);\n    opacity: 1;\n  }\n  100% {\n    transform: scale(1);\n\
+    \    opacity: 1;\n  }\n}\n\n/* Form elements */\n.form-control {\n  display: block;\n  width: 100%;\n  padding: var(--space-8)\
+    \ var(--space-12);\n  font-size: var(--font-size-md);\n  line-height: 1.5;\n  color: var(--color-text);\n  background-color:\
+    \ var(--color-surface);\n  border: 1px solid var(--color-border);\n  border-radius: var(--radius-base);\n  transition:\
+    \ border-color var(--duration-fast) var(--ease-standard),\n    box-shadow var(--duration-fast) var(--ease-standard);\n\
+    }\n\ntextarea.form-control {\n  font-family: var(--font-family-base);\n  font-size: var(--font-size-base);\n}\n\nselect.form-control\
+    \ {\n  padding: var(--space-8) var(--space-12);\n  -webkit-appearance: none;\n  -moz-appearance: none;\n  appearance:\
+    \ none;\n  background-image: var(--select-caret-light);\n  background-repeat: no-repeat;\n  background-position: right\
+    \ var(--space-12) center;\n  background-size: 16px;\n  padding-right: var(--space-32);\n}\n\n/* Add a dark mode specific\
+    \ caret */\n@media (prefers-color-scheme: dark) {\n  select.form-control {\n    background-image: var(--select-caret-dark);\n\
+    \  }\n}\n\n/* Also handle data-color-scheme */\n[data-color-scheme=\"dark\"] select.form-control {\n  background-image:\
+    \ var(--select-caret-dark);\n}\n\n[data-color-scheme=\"light\"] select.form-control {\n  background-image: var(--select-caret-light);\n\
+    }\n\n.form-control:focus {\n  border-color: var(--color-primary);\n  outline: var(--focus-outline);\n}\n\n.form-label\
+    \ {\n  display: block;\n  margin-bottom: var(--space-8);\n  font-weight: var(--font-weight-medium);\n  font-size: var(--font-size-sm);\n\
+    }\n\n.form-group {\n  margin-bottom: var(--space-16);\n}\n\n/* Card component */\n.card {\n  background-color: var(--color-surface);\n\
+    \  border-radius: var(--radius-lg);\n  border: 1px solid var(--color-card-border);\n  box-shadow: var(--shadow-sm);\n\
+    \  overflow: hidden;\n  transition: box-shadow var(--duration-normal) var(--ease-standard);\n}\n\n.card:hover {\n  box-shadow:\
+    \ var(--shadow-md);\n}\n\n.card__body {\n  padding: var(--space-16);\n}\n\n.card__header,\n.card__footer {\n  padding:\
+    \ var(--space-16);\n  border-bottom: 1px solid var(--color-card-border-inner);\n}\n\n/* Status indicators - simplified\
+    \ with CSS variables */\n.status {\n  display: inline-flex;\n  align-items: center;\n  padding: var(--space-6) var(--space-12);\n\
+    \  border-radius: var(--radius-full);\n  font-weight: var(--font-weight-medium);\n  font-size: var(--font-size-sm);\n\
+    }\n\n.status--success {\n  background-color: rgba(\n    var(--color-success-rgb, 33, 128, 141),\n    var(--status-bg-opacity)\n\
+    \  );\n  color: var(--color-success);\n  border: 1px solid\n    rgba(var(--color-success-rgb, 33, 128, 141), var(--status-border-opacity));\n\
+    }\n\n.status--error {\n  background-color: rgba(\n    var(--color-error-rgb, 192, 21, 47),\n    var(--status-bg-opacity)\n\
+    \  );\n  color: var(--color-error);\n  border: 1px solid\n    rgba(var(--color-error-rgb, 192, 21, 47), var(--status-border-opacity));\n\
+    }\n\n.status--warning {\n  background-color: rgba(\n    var(--color-warning-rgb, 168, 75, 47),\n    var(--status-bg-opacity)\n\
+    \  );\n  color: var(--color-warning);\n  border: 1px solid\n    rgba(var(--color-warning-rgb, 168, 75, 47), var(--status-border-opacity));\n\
+    }\n\n.status--info {\n  background-color: rgba(\n    var(--color-info-rgb, 98, 108, 113),\n    var(--status-bg-opacity)\n\
+    \  );\n  color: var(--color-info);\n  border: 1px solid\n    rgba(var(--color-info-rgb, 98, 108, 113), var(--status-border-opacity));\n\
+    }\n\n/* Container layout */\n.container {\n  width: 100%;\n  margin-right: auto;\n  margin-left: auto;\n  padding-right:\
+    \ var(--space-16);\n  padding-left: var(--space-16);\n}\n\n@media (min-width: 640px) {\n  .container {\n    max-width:\
+    \ var(--container-sm);\n  }\n}\n@media (min-width: 768px) {\n  .container {\n    max-width: var(--container-md);\n  }\n\
+    }\n@media (min-width: 1024px) {\n  .container {\n    max-width: var(--container-lg);\n  }\n}\n@media (min-width: 1280px)\
+    \ {\n  .container {\n    max-width: var(--container-xl);\n  }\n}\n\n/* Utility classes */\n.flex {\n  display: flex;\n\
+    }\n.flex-col {\n  flex-direction: column;\n}\n.items-center {\n  align-items: center;\n}\n.justify-center {\n  justify-content:\
+    \ center;\n}\n.justify-between {\n  justify-content: space-between;\n}\n.gap-4 {\n  gap: var(--space-4);\n}\n.gap-8 {\n\
+    \  gap: var(--space-8);\n}\n.gap-16 {\n  gap: var(--space-16);\n}\n\n.m-0 {\n  margin: 0;\n}\n.mt-8 {\n  margin-top: var(--space-8);\n\
+    }\n.mb-8 {\n  margin-bottom: var(--space-8);\n}\n.mx-8 {\n  margin-left: var(--space-8);\n  margin-right: var(--space-8);\n\
+    }\n.my-8 {\n  margin-top: var(--space-8);\n  margin-bottom: var(--space-8);\n}\n\n.p-0 {\n  padding: 0;\n}\n.py-8 {\n\
+    \  padding-top: var(--space-8);\n  padding-bottom: var(--space-8);\n}\n.px-8 {\n  padding-left: var(--space-8);\n  padding-right:\
+    \ var(--space-8);\n}\n.py-16 {\n  padding-top: var(--space-16);\n  padding-bottom: var(--space-16);\n}\n.px-16 {\n  padding-left:\
+    \ var(--space-16);\n  padding-right: var(--space-16);\n}\n\n.block {\n  display: block;\n}\n.hidden {\n  display: none;\n\
+    }\n\n/* Accessibility */\n.sr-only {\n  position: absolute;\n  width: 1px;\n  height: 1px;\n  padding: 0;\n  margin: -1px;\n\
+    \  overflow: hidden;\n  clip: rect(0, 0, 0, 0);\n  white-space: nowrap;\n  border-width: 0;\n}\n\n:focus-visible {\n \
+    \ outline: var(--focus-outline);\n  outline-offset: 2px;\n}\n\n/* Dark mode specifics */\n[data-color-scheme=\"dark\"\
+    ] .btn--outline {\n  border: 1px solid var(--color-border-secondary);\n}\n\n@font-face {\n  font-family: 'FKGroteskNeue';\n\
+    \  src: url('https://www.perplexity.ai/fonts/FKGroteskNeue.woff2')\n    format('woff2');\n}\n\n/* Import design system\
+    \ first */\n\n/* Additional application-specific styles */\nbody {\n  margin: 0;\n  padding: 0;\n  min-height: 100vh;\n\
+    \  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\n  font-family: var(--font-family-base);\n  color: var(--color-text);\n\
+    \  overflow-x: hidden;\n}\n\n.app-container {\n  min-height: 100vh;\n  padding: var(--space-20);\n  backdrop-filter: blur(10px);\n\
+    }\n\n/* Header Styles */\n.app-header {\n  display: flex;\n  justify-content: center;\n  align-items: center;\n  padding:\
+    \ var(--space-4) var(--space-8);\n  background: rgba(255, 255, 255, 0.1);\n  backdrop-filter: blur(20px);\n  border: 1px\
+    \ solid rgba(255, 255, 255, 0.2);\n  border-radius: var(--radius-lg);\n  margin-bottom: var(--space-32);\n  box-shadow:\
+    \ 0 8px 32px rgba(0, 0, 0, 0.1);\n}\n\n.app-title {\n  font-size: var(--font-size-4xl);\n  font-weight: var(--font-weight-bold);\n\
+    \  color: white;\n  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);\n  margin: 0;\n}\n\n\n\n/* Main Content */\n.main-content\
+    \ {\n  display: grid;\n  gap: var(--space-24);\n  max-width: 1200px;\n  margin: 0 auto;\n}\n\n/* Section Cards */\n.section-card\
+    \ {\n  background: rgba(255, 255, 255, 0.1);\n  backdrop-filter: blur(20px);\n  border: 1px solid rgba(255, 255, 255,\
+    \ 0.2);\n  border-radius: var(--radius-lg);\n  padding: var(--space-20);\n  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);\n\
+    \  transition: all var(--duration-normal) var(--ease-standard);\n}\n\n.section-card:hover {\n  transform: translateY(-2px);\n\
+    \  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);\n  background: rgba(255, 255, 255, 0.15);\n}\n\n.section-header {\n  display:\
+    \ flex;\n  align-items: center;\n  gap: var(--space-2);\n  margin-bottom: var(--space-20);\n}\n\n.section-icon {\n  font-size:\
+    \ var(--font-size-3x1);\n  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));\n}\n\n.section-title {\n  font-size: var(--font-size-2xl);\n\
+    \  font-weight: var(--font-weight-bold);\n  color: white;\n  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);\n  margin: 0;\n\
+    }\n\n/* Button Grid */\n.button-grid {\n  display: grid;\n  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));\n\
+    \  gap: var(--space-4);\n}\n\n/* Action Buttons */\n.action-btn {\n  display: flex;\n  align-items: center;\n  gap: var(--space-2);\n\
+    \  padding: var(--space-1) var(--space-10);\n  background: rgba(255, 255, 255, 0.1);\n  border: 1px solid rgba(255, 255,\
+    \ 255, 0.2);\n  border-radius: var(--radius-full);\n  color: white;\n  font-size: var(--font-size-base);\n  font-weight:\
+    \ var(--font-weight-medium);\n  cursor: pointer;\n  transition: all var(--duration-normal) var(--ease-standard);\n  backdrop-filter:\
+    \ blur(10px);\n  text-align: left;\n  width: 100%;\n  position: relative;\n  overflow: hidden;\n  height: 32px; /* or\
+    \ whatever height you want */\n}\n\n.action-btn::before {\n  content: '';\n  position: absolute;\n  top: 0;\n  left: -100%;\n\
+    \  width: 100%;\n  height: 100%;\n  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);\n\
+    \  transition: left var(--duration-normal) var(--ease-standard);\n}\n\n.action-btn:hover::before {\n  left: 100%;\n}\n\
+    \n.action-btn:hover {\n  transform: translateY(-2px);\n  background: rgba(255, 255, 255, 0.2);\n  box-shadow: 0 8px 25px\
+    \ rgba(0, 0, 0, 0.15);\n  border-color: rgba(255, 255, 255, 0.3);\n}\n\n.action-btn:active {\n  transform: translateY(0);\n\
+    \  background: rgba(255, 255, 255, 0.25);\n}\n\n.btn-icon {\n  font-size: var(--font-size-xl);\n  filter: drop-shadow(0\
+    \ 1px 2px rgba(0, 0, 0, 0.1));\n  flex-shrink: 0;\n}\n\n.btn-text {\n  flex: 1;\n  text-shadow: 0 1px 2px rgba(0, 0, 0,\
+    \ 0.1);\n}\n\n/* Custom Request Section */\n.custom-request-container {\n  display: flex;\n  flex-direction: column;\n\
+    \  gap: var(--space-16);\n}\n\n.custom-textarea {\n  width: 100%;\n  min-height: 120px;\n  padding: var(--space-16);\n\
+    \  background: rgba(255, 255, 255, 0.1);\n  border: 1px solid rgba(255, 255, 255, 0.2);\n  border-radius: var(--radius-lg);\n\
+    \  color: white;\n  font-size: var(--font-size-base);\n  font-family: var(--font-family-base);\n  backdrop-filter: blur(10px);\n\
+    \  resize: vertical;\n  transition: all var(--duration-normal) var(--ease-standard);\n}\n\n.custom-textarea::placeholder\
+    \ {\n  color: rgba(255, 255, 255, 0.6);\n}\n\n.custom-textarea:focus {\n  outline: none;\n  background: rgba(255, 255,\
+    \ 255, 0.15);\n  border-color: rgba(255, 255, 255, 0.4);\n  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);\n}\n\n.custom-btn\
+    \ {\n  align-self: flex-start;\n  min-width: 260px;\n}\n\n/* Modal Styles */\n.modal-overlay {\n  position: fixed;\n \
+    \ top: 0;\n  left: 0;\n  right: 0;\n  bottom: 0;\n  background: rgba(0, 0, 0, 0.6);\n  backdrop-filter: blur(8px);\n \
+    \ display: flex;\n  align-items: center;\n  justify-content: center;\n  z-index: 1000;\n  opacity: 0;\n  visibility: hidden;\n\
+    \  transition: all var(--duration-normal) var(--ease-standard);\n}\n\n.modal-overlay.active {\n  opacity: 1;\n  visibility:\
+    \ visible;\n}\n\n.modal-content {\n  background: var(--color-surface);\n  border-radius: var(--radius-lg);\n  box-shadow:\
+    \ 0 20px 60px rgba(0, 0, 0, 0.3);\n  max-width: 500px;\n  width: 90%;\n  max-height: 80vh;\n  overflow: hidden;\n  transform:\
+    \ scale(0.9) translateY(20px);\n  transition: all var(--duration-normal) var(--ease-standard);\n}\n\n.modal-overlay.active\
+    \ .modal-content {\n  transform: scale(1) translateY(0);\n}\n\n.modal-header {\n  display: flex;\n  justify-content: space-between;\n\
+    \  align-items: center;\n  padding: var(--space-20) var(--space-24);\n  border-bottom: 1px solid var(--color-border);\n\
+    }\n\n.modal-title {\n  margin: 0;\n  font-size: var(--font-size-xl);\n  font-weight: var(--font-weight-semibold);\n}\n\
+    \n.modal-close {\n  background: transparent;\n  border: none;\n  font-size: var(--font-size-xl);\n  cursor: pointer;\n\
+    \  color: var(--color-text);\n}\n\n.modal-body {\n  padding: var(--space-20) var(--space-24);\n  max-height: 60vh;\n \
+    \ overflow-y: auto;\n}\n\n.modal-footer {\n  padding: var(--space-16) var(--space-24);\n  border-top: 1px solid var(--color-border);\n\
+    \  display: flex;\n  justify-content: flex-end;\n  gap: var(--space-8);\n}\n\n/* Theme selector */\n.theme-switcher {\n\
+    \  position: fixed;\n  top: var(--space-16);\n  right: var(--space-16);\n  display: flex;\n  align-items: center;\n  gap:\
+    \ var(--space-8);\n  background: rgba(255, 255, 255, 0.08);\n  border: 1px solid rgba(255, 255, 255, 0.2);\n  border-radius:\
+    \ var(--radius-full);\n  padding: var(--space-8) var(--space-12);\n  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);\n  backdrop-filter:\
+    \ blur(10px);\n}\n\n.theme-switcher label {\n  color: white;\n  font-size: var(--font-size-sm);\n  font-weight: var(--font-weight-medium);\n\
+    }\n\n.theme-selector {\n  border-radius: var(--radius-full);\n  padding: var(--space-6) var(--space-12);\n  background:\
+    \ rgba(255, 255, 255, 0.12);\n  color: white;\n  border: 1px solid rgba(255, 255, 255, 0.2);\n  backdrop-filter: blur(6px);\n\
+    }\n\n.status-badge {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 12px;\n  border-radius:\
+    \ 999px;\n  background: rgba(255, 255, 255, 0.14);\n  border: 1px solid rgba(255, 255, 255, 0.2);\n  color: white;\n \
+    \ font-weight: 600;\n}\n\n.status-badge .dot {\n  width: 8px;\n  height: 8px;\n  border-radius: 50%;\n  background: #10b981;\n\
+    \  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);\n}\n\n/* Scrollbar styling */\n::-webkit-scrollbar {\n  width: 10px;\n\
+    }\n\n::-webkit-scrollbar-track {\n  background: rgba(255, 255, 255, 0.1);\n}\n\n::-webkit-scrollbar-thumb {\n  background:\
+    \ rgba(255, 255, 255, 0.25);\n  border-radius: 10px;\n  border: 2px solid rgba(255, 255, 255, 0.1);\n}\n\n::-webkit-scrollbar-thumb:hover\
+    \ {\n  background: rgba(255, 255, 255, 0.35);\n}\n\n/* Responsive tweaks */\n@media (max-width: 768px) {\n  .button-grid\
+    \ {\n    grid-template-columns: 1fr;\n  }\n\n  .theme-switcher {\n    top: auto;\n    bottom: var(--space-16);\n    right:\
+    \ 50%;\n    transform: translateX(50%);\n  }\n\n  .app-header {\n    padding: var(--space-8) var(--space-12);\n  }\n\n\
+    \  .section-card {\n    padding: var(--space-16);\n  }\n\n  .action-btn {\n    height: auto;\n    padding: var(--space-8)\
+    \ var(--space-12);\n  }\n}/* Import Professional Fonts - Poppins (Headings) + Open Sans (Body) */\n@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');\n\
+    \n/* ============================================\n   THEME VARIABLES - 10 STUNNING THEMES\n   ============================================\
+    \ */\n\n/* Theme 1: Glassmorphism Light - Classic frosted glass */\n[data-theme=\"glassmorphism\"] {\n  --primary: #2563EB;\n\
+    \  --secondary: #3B82F6;\n  --accent: #F97316;\n  --background: #e8ecf7;\n  --background-gradient-start: #f0f4ff;\n  --background-gradient-end:\
+    \ #dfe3eb;\n  --text: rgba(0, 0, 0, 0.85);\n  --text-muted: rgba(0, 0, 0, 0.6);\n  --card-bg: rgba(255, 255, 255, 0.25);\n\
+    \  --card-border: rgba(255, 255, 255, 0.35);\n  --button-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.5), rgba(255,\
+    \ 255, 255, 0.25));\n  --button-hover: rgba(255, 255, 255, 0.65);\n  --input-bg: rgba(255, 255, 255, 0.3);\n  --input-border:\
+    \ rgba(255, 255, 255, 0.35);\n  --blur: 25px;\n  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.08);\n  --shadow-md: 0 4px 30px\
+    \ rgba(0, 0, 0, 0.08);\n  --shadow-lg: 0 8px 36px rgba(0, 0, 0, 0.12);\n}\n\n/* Theme 2: Glassmorphism Dark - Dark glass\
+    \ with neon accents */\n[data-theme=\"glass-dark\"] {\n  --primary: #0080FF;\n  --secondary: #00FFFF;\n  --accent: #FF1493;\n\
+    \  --background: #0A0E1A;\n  --background-gradient-start: #0A0E1A;\n  --background-gradient-end: #1A1F3A;\n  --text: rgba(255,\
+    \ 255, 255, 0.95);\n  --text-muted: rgba(255, 255, 255, 0.6);\n  --card-bg: rgba(255, 255, 255, 0.08);\n  --card-border:\
+    \ rgba(255, 255, 255, 0.15);\n  --button-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06));\n\
+    \  --button-hover: rgba(255, 255, 255, 0.18);\n  --input-bg: rgba(255, 255, 255, 0.08);\n  --input-border: rgba(255, 255,\
+    \ 255, 0.15);\n  --blur: 30px;\n  --shadow-sm: 0 2px 8px rgba(0, 128, 255, 0.2);\n  --shadow-md: 0 4px 24px rgba(0, 128,\
+    \ 255, 0.25);\n  --shadow-lg: 0 8px 40px rgba(0, 255, 255, 0.3);\n}\n\n/* Theme 3: Glassmorphism Purple - Violet glass\
+    \ aesthetic */\n[data-theme=\"glass-purple\"] {\n  --primary: #7C3AED;\n  --secondary: #A78BFA;\n  --accent: #F43F5E;\n\
+    \  --background: #1E1B2E;\n  --background-gradient-start: #2D2545;\n  --background-gradient-end: #1E1B2E;\n  --text: rgba(255,\
+    \ 255, 255, 0.95);\n  --text-muted: rgba(255, 255, 255, 0.65);\n  --card-bg: rgba(167, 139, 250, 0.12);\n  --card-border:\
+    \ rgba(167, 139, 250, 0.25);\n  --button-bg: linear-gradient(145deg, rgba(167, 139, 250, 0.15), rgba(124, 58, 237, 0.1));\n\
+    \  --button-hover: rgba(167, 139, 250, 0.25);\n  --input-bg: rgba(167, 139, 250, 0.1);\n  --input-border: rgba(167, 139,\
+    \ 250, 0.2);\n  --blur: 25px;\n  --shadow-sm: 0 2px 8px rgba(124, 58, 237, 0.2);\n  --shadow-md: 0 4px 24px rgba(124,\
+    \ 58, 237, 0.3);\n  --shadow-lg: 0 8px 40px rgba(167, 139, 250, 0.35);\n}\n\n/* Theme 4: Aurora Gradient - Flowing northern\
+    \ lights */\n[data-theme=\"aurora\"] {\n  --primary: #0080FF;\n  --secondary: #FF1493;\n  --accent: #00FFFF;\n  --background:\
+    \ #0F0524;\n  --background-gradient-start: #1a0933;\n  --background-gradient-end: #0F0524;\n  --text: rgba(255, 255, 255,\
+    \ 0.95);\n  --text-muted: rgba(255, 255, 255, 0.7);\n  --card-bg: rgba(0, 128, 255, 0.08);\n  --card-border: rgba(255,\
+    \ 20, 147, 0.2);\n  --button-bg: linear-gradient(135deg, rgba(0, 128, 255, 0.15), rgba(255, 20, 147, 0.1));\n  --button-hover:\
+    \ rgba(0, 255, 255, 0.18);\n  --input-bg: rgba(0, 128, 255, 0.08);\n  --input-border: rgba(255, 20, 147, 0.2);\n  --blur:\
+    \ 20px;\n  --shadow-sm: 0 2px 12px rgba(0, 128, 255, 0.3);\n  --shadow-md: 0 4px 30px rgba(255, 20, 147, 0.25);\n  --shadow-lg:\
+    \ 0 8px 50px rgba(0, 255, 255, 0.35);\n}\n\n/* Theme 5: Neumorphism Soft - Embossed soft UI (DEFAULT) */\n[data-theme=\"\
+    neomorphism\"],\n:root {\n  --primary: #64B5F6;\n  --secondary: #90CAF9;\n  --accent: #42A5F5;\n  --background: #E0E5EC;\n\
+    \  --background-gradient-start: #E0E5EC;\n  --background-gradient-end: #D4D9E0;\n  --text: #2E3A59;\n  --text-muted: #6B7A99;\n\
+    \  --card-bg: #E0E5EC;\n  --card-border: transparent;\n  --button-bg: #E0E5EC;\n  --button-hover: #D4D9E0;\n  --input-bg:\
+    \ #E0E5EC;\n  --input-border: transparent;\n  --blur: 0px;\n  --shadow-sm: -3px -3px 7px rgba(255,255,255,0.8), 3px 3px\
+    \ 7px rgba(0,0,0,0.15);\n  --shadow-md: -5px -5px 15px rgba(255,255,255,0.8), 5px 5px 15px rgba(0,0,0,0.15);\n  --shadow-lg:\
+    \ -8px -8px 20px rgba(255,255,255,0.9), 8px 8px 20px rgba(0,0,0,0.2);\n}\n\n/* Theme 6: Claymorphism - Playful chunky\
+    \ 3D */\n[data-theme=\"claymorphism\"] {\n  --primary: #FF6B9D;\n  --secondary: #FFA07A;\n  --accent: #98FF98;\n  --background:\
+    \ #FFF9F3;\n  --background-gradient-start: #FFF9F3;\n  --background-gradient-end: #FFF0E5;\n  --text: #2C1810;\n  --text-muted:\
+    \ #8B6F5C;\n  --card-bg: rgba(255, 255, 255, 0.7);\n  --card-border: rgba(255, 107, 157, 0.2);\n  --button-bg: rgba(255,\
+    \ 255, 255, 0.8);\n  --button-hover: rgba(255, 240, 229, 0.9);\n  --input-bg: rgba(255, 255, 255, 0.8);\n  --input-border:\
+    \ rgba(255, 160, 122, 0.3);\n  --blur: 15px;\n  --shadow-sm: 0 2px 0 rgba(255,107,157,0.2), 0 4px 8px rgba(0,0,0,0.08);\n\
+    \  --shadow-md: 0 3px 0 rgba(255,107,157,0.2), 0 8px 16px rgba(0,0,0,0.1);\n  --shadow-lg: 0 4px 0 rgba(255,107,157,0.25),\
+    \ 0 12px 24px rgba(0,0,0,0.12);\n}\n\n/* Theme 7: Cyberpunk Neon - Gaming aesthetic */\n[data-theme=\"cyberpunk\"] {\n\
+    \  --primary: #00FF00;\n  --secondary: #FF00FF;\n  --accent: #00FFFF;\n  --background: #0D0D0D;\n  --background-gradient-start:\
+    \ #1A0A1A;\n  --background-gradient-end: #0D0D0D;\n  --text: #00FF00;\n  --text-muted: #00FFAA;\n  --card-bg: rgba(0,\
+    \ 255, 0, 0.05);\n  --card-border: rgba(0, 255, 0, 0.3);\n  --button-bg: rgba(0, 255, 0, 0.08);\n  --button-hover: rgba(0,\
+    \ 255, 0, 0.15);\n  --input-bg: rgba(0, 255, 0, 0.05);\n  --input-border: rgba(0, 255, 0, 0.3);\n  --blur: 10px;\n  --shadow-sm:\
+    \ 0 0 10px rgba(0, 255, 0, 0.3);\n  --shadow-md: 0 0 20px rgba(255, 0, 255, 0.3);\n  --shadow-lg: 0 0 30px rgba(0, 255,\
+    \ 255, 0.4);\n}\n\n/* Theme 8: Creative Agency - Bold pink/cyan */\n[data-theme=\"creative\"] {\n  --primary: #EC4899;\n\
+    \  --secondary: #F472B6;\n  --accent: #06B6D4;\n  --background: #FDF2F8;\n  --background-gradient-start: #FDF2F8;\n  --background-gradient-end:\
+    \ #FCE7F3;\n  --text: #831843;\n  --text-muted: #9F1239;\n  --card-bg: rgba(255, 255, 255, 0.8);\n  --card-border: rgba(236,\
+    \ 72, 153, 0.2);\n  --button-bg: rgba(255, 255, 255, 0.9);\n  --button-hover: rgba(252, 231, 243, 0.9);\n  --input-bg:\
+    \ rgba(255, 255, 255, 0.9);\n  --input-border: rgba(251, 207, 232, 0.6);\n  --blur: 15px;\n  --shadow-sm: 0 2px 8px rgba(236,\
+    \ 72, 153, 0.1);\n  --shadow-md: 0 4px 20px rgba(236, 72, 153, 0.15);\n  --shadow-lg: 0 8px 35px rgba(6, 182, 212, 0.2);\n\
+    }\n\n/* Theme 9: Minimal SaaS - Clean professional */\n[data-theme=\"minimal-saas\"] {\n  --primary: #2563EB;\n  --secondary:\
+    \ #3B82F6;\n  --accent: #F97316;\n  --background: #F8FAFC;\n  --background-gradient-start: #F8FAFC;\n  --background-gradient-end:\
+    \ #F1F5F9;\n  --text: #1E293B;\n  --text-muted: #475569;\n  --card-bg: #FFFFFF;\n  --card-border: #E2E8F0;\n  --button-bg:\
+    \ #FFFFFF;\n  --button-hover: #F1F5F9;\n  --input-bg: #FFFFFF;\n  --input-border: #E2E8F0;\n  --blur: 0px;\n  --shadow-sm:\
+    \ 0 1px 3px rgba(0, 0, 0, 0.05);\n  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);\n  --shadow-lg: 0 10px 24px rgba(0, 0,\
+    \ 0, 0.1);\n}\n\n/* Theme 10: Ocean Deep - Calm aquatic glass */\n[data-theme=\"ocean\"] {\n  --primary: #0891B2;\n  --secondary:\
+    \ #22D3EE;\n  --accent: #06B6D4;\n  --background: #0C4A6E;\n  --background-gradient-start: #0C4A6E;\n  --background-gradient-end:\
+    \ #164E63;\n  --text: rgba(255, 255, 255, 0.95);\n  --text-muted: rgba(165, 243, 252, 0.8);\n  --card-bg: rgba(34, 211,\
+    \ 238, 0.1);\n  --card-border: rgba(34, 211, 238, 0.25);\n  --button-bg: linear-gradient(145deg, rgba(34, 211, 238, 0.15),\
+    \ rgba(8, 145, 178, 0.1));\n  --button-hover: rgba(34, 211, 238, 0.22);\n  --input-bg: rgba(34, 211, 238, 0.08);\n  --input-border:\
+    \ rgba(34, 211, 238, 0.2);\n  --blur: 25px;\n  --shadow-sm: 0 2px 8px rgba(8, 145, 178, 0.2);\n  --shadow-md: 0 4px 24px\
+    \ rgba(8, 145, 178, 0.3);\n  --shadow-lg: 0 8px 40px rgba(34, 211, 238, 0.35);\n}\n\n/* ============================================\n\
+    \   GLOBAL STYLES\n   ============================================ */\n\n* {\n  box-sizing: border-box;\n  margin: 0;\n\
+    \  padding: 0;\n}\n\nbody {\n  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;\n\
+    \  min-height: 100vh;\n  background: radial-gradient(circle at 20% 20%, var(--background-gradient-start) 0%, var(--background-gradient-end)\
+    \ 100%);\n  color: var(--text);\n  line-height: 1.6;\n  -webkit-font-smoothing: antialiased;\n  -moz-osx-font-smoothing:\
+    \ grayscale;\n  overflow-x: hidden;\n  transition: background 0.5s ease, color 0.3s ease;\n}\n\nh1, h2, h3, h4, h5, h6\
+    \ {\n  font-family: 'Poppins', sans-serif;\n  font-weight: 600;\n}\n\n/* ============================================\n\
+    \   HEADER WITH THEME SWITCHER\n   ============================================ */\n\n.app-header {\n  background: var(--card-bg);\n\
+    \  border: 1px solid var(--card-border);\n  backdrop-filter: blur(var(--blur)) saturate(180%);\n  border-radius: 20px;\n\
+    \  box-shadow: var(--shadow-md);\n  padding: 20px 24px;\n  margin-bottom: 20px;\n  text-align: center;\n  transition:\
+    \ all 0.3s ease;\n}\n\n.app-title {\n  font-size: 1.5rem;\n  font-weight: 600;\n  color: var(--text);\n  margin: 0;\n\
+    }\n\n/* Theme Footer at Bottom */\n.theme-footer {\n  background: var(--card-bg);\n  border: 1px solid var(--card-border);\n\
+    \  backdrop-filter: blur(var(--blur)) saturate(180%);\n  border-radius: 20px;\n  box-shadow: var(--shadow-md);\n  padding:\
+    \ 16px 20px;\n  margin-top: 20px;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  gap: 12px;\n\
+    \  transition: all 0.3s ease;\n}\n\n.theme-label {\n  font-family: 'Poppins', sans-serif;\n  font-size: 0.9rem;\n  font-weight:\
+    \ 600;\n  color: var(--text);\n  margin: 0;\n}\n\n.theme-dropdown {\n  font-family: 'Open Sans', sans-serif;\n  font-size:\
+    \ 0.875rem;\n  font-weight: 500;\n  padding: 8px 12px;\n  border-radius: 12px;\n  border: 1px solid var(--input-border);\n\
+    \  background: var(--input-bg);\n  backdrop-filter: blur(10px);\n  color: var(--text);\n  cursor: pointer;\n  transition:\
+    \ all 0.2s ease;\n  outline: none;\n}\n\n.theme-dropdown:hover {\n  background: var(--button-hover);\n  border-color:\
+    \ var(--primary);\n}\n\n.theme-dropdown:focus {\n  border-color: var(--primary);\n  box-shadow: 0 0 0 3px rgba(37, 99,\
+    \ 235, 0.1);\n}\n\n/* ============================================\n   CONTAINER & LAYOUT\n   ============================================\
+    \ */\n\n.app-container {\n  width: 100%;\n  max-width: 420px;\n  margin: 0 auto;\n  padding: 20px 16px 32px;\n}\n\n.main-content\
+    \ {\n  display: flex;\n  flex-direction: column;\n  gap: 20px;\n}\n\n/* ============================================\n\
+    \   SECTION CARDS\n   ============================================ */\n\n.section-card {\n  background: var(--card-bg);\n\
+    \  border: 1px solid var(--card-border);\n  border-radius: 20px;\n  backdrop-filter: blur(var(--blur)) saturate(180%);\n\
+    \  box-shadow: var(--shadow-md);\n  padding: 20px;\n  transition: transform 0.3s ease, box-shadow 0.3s ease;\n}\n\n.section-card:hover\
+    \ {\n  transform: translateY(-2px);\n  box-shadow: var(--shadow-lg);\n}\n\n/* Section Header */\n.section-header {\n \
+    \ display: flex;\n  align-items: center;\n  gap: 10px;\n  margin-bottom: 16px;\n}\n\n.section-icon-wrapper {\n  display:\
+    \ flex;\n  align-items: center;\n  justify-content: center;\n  width: 32px;\n  height: 32px;\n  border-radius: 10px;\n\
+    \  background: linear-gradient(135deg, var(--primary), var(--secondary));\n  color: white;\n  transition: transform 0.3s\
+    \ ease;\n}\n\n.section-card:hover .section-icon-wrapper {\n  transform: scale(1.1) rotate(5deg);\n}\n\n.section-icon {\n\
+    \  width: 20px;\n  height: 20px;\n  stroke-width: 2.5;\n}\n\n.section-title {\n  font-size: 1.15rem;\n  font-weight: 600;\n\
+    \  color: var(--text);\n  margin: 0;\n}\n\n/* ============================================\n   BUTTONS\n   ============================================\
+    \ */\n\n.button-grid {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n}\n\n.action-btn {\n  display: flex;\n\
+    \  align-items: center;\n  gap: 12px;\n  padding: 12px 16px;\n  min-height: 48px;\n  border-radius: 14px;\n  border: 1px\
+    \ solid var(--card-border);\n  background: var(--button-bg);\n  color: var(--text);\n  font-family: 'Open Sans', sans-serif;\n\
+    \  font-size: 0.9rem;\n  font-weight: 500;\n  cursor: pointer;\n  transition: all 0.2s ease;\n  box-shadow: var(--shadow-sm);\n\
+    \  text-align: left;\n  width: 100%;\n}\n\n.action-btn:hover {\n  background: var(--button-hover);\n  transform: translateY(-1px);\n\
+    \  box-shadow: var(--shadow-md);\n  border-color: var(--primary);\n}\n\n.action-btn:active {\n  transform: translateY(0);\n\
+    }\n\n.btn-icon {\n  width: 20px;\n  height: 20px;\n  flex-shrink: 0;\n  stroke-width: 2;\n  color: var(--primary);\n \
+    \ transition: transform 0.3s ease;\n}\n\n.action-btn:hover .btn-icon {\n  transform: scale(1.15);\n}\n\n.btn-text {\n\
+    \  flex: 1;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n/* ============================================\n\
+    \   CUSTOM REQUEST SECTION\n   ============================================ */\n\n.custom-request-container {\n  display:\
+    \ flex;\n  flex-direction: column;\n  gap: 12px;\n}\n\n.custom-textarea {\n  width: 100%;\n  min-height: 100px;\n  padding:\
+    \ 12px 14px;\n  border-radius: 14px;\n  border: 1px solid var(--input-border);\n  background: var(--input-bg);\n  backdrop-filter:\
+    \ blur(10px);\n  font-family: 'Open Sans', sans-serif;\n  font-size: 0.9rem;\n  color: var(--text);\n  resize: vertical;\n\
+    \  transition: all 0.2s ease;\n  outline: none;\n}\n\n.custom-textarea::placeholder {\n  color: var(--text-muted);\n \
+    \ opacity: 0.7;\n}\n\n.custom-textarea:focus {\n  border-color: var(--primary);\n  background: var(--button-hover);\n\
+    \  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);\n}\n\n.custom-btn {\n  background: linear-gradient(135deg, var(--primary),\
+    \ var(--secondary));\n  color: white;\n  border: none;\n  font-weight: 600;\n}\n\n.custom-btn:hover {\n  background: linear-gradient(135deg,\
+    \ var(--secondary), var(--primary));\n  transform: translateY(-2px);\n  box-shadow: var(--shadow-lg);\n}\n\n.custom-btn\
+    \ .btn-icon {\n  color: white;\n}\n\n/* ============================================\n   MODAL\n   ============================================\
+    \ */\n\n.modal-overlay {\n  position: fixed;\n  inset: 0;\n  background: rgba(0, 0, 0, 0.5);\n  backdrop-filter: blur(8px);\n\
+    \  display: flex;\n  align-items: center;\n  justify-content: center;\n  opacity: 0;\n  visibility: hidden;\n  transition:\
+    \ all 0.3s ease;\n  z-index: 1000;\n  padding: 20px;\n}\n\n.modal-overlay.active {\n  opacity: 1;\n  visibility: visible;\n\
+    }\n\n.modal-content {\n  background: var(--card-bg);\n  border: 1px solid var(--card-border);\n  border-radius: 20px;\n\
+    \  backdrop-filter: blur(var(--blur)) saturate(180%);\n  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);\n  width: 100%;\n\
+    \  max-width: 500px;\n  overflow: hidden;\n  transform: scale(0.9);\n  transition: transform 0.3s ease;\n}\n\n.modal-overlay.active\
+    \ .modal-content {\n  transform: scale(1);\n}\n\n.modal-header {\n  display: flex;\n  align-items: center;\n  justify-content:\
+    \ space-between;\n  padding: 20px 24px;\n  border-bottom: 1px solid var(--card-border);\n}\n\n.modal-title {\n  font-size:\
+    \ 1.25rem;\n  font-weight: 600;\n  color: var(--text);\n  margin: 0;\n}\n\n.modal-close {\n  background: none;\n  border:\
+    \ none;\n  font-size: 1.75rem;\n  color: var(--text-muted);\n  cursor: pointer;\n  width: 32px;\n  height: 32px;\n  display:\
+    \ flex;\n  align-items: center;\n  justify-content: center;\n  border-radius: 8px;\n  transition: all 0.2s ease;\n}\n\n\
+    .modal-close:hover {\n  background: var(--button-hover);\n  color: var(--text);\n}\n\n.modal-body {\n  padding: 24px;\n\
+    \  color: var(--text);\n  max-height: 60vh;\n  overflow-y: auto;\n}\n\n.modal-footer {\n  padding: 16px 24px;\n  border-top:\
+    \ 1px solid var(--card-border);\n  display: flex;\n  justify-content: flex-end;\n  gap: 12px;\n}\n\n.btn {\n  padding:\
+    \ 10px 20px;\n  border-radius: 12px;\n  font-family: 'Open Sans', sans-serif;\n  font-size: 0.9rem;\n  font-weight: 600;\n\
+    \  cursor: pointer;\n  transition: all 0.2s ease;\n  border: none;\n  outline: none;\n}\n\n.btn--primary {\n  background:\
+    \ linear-gradient(135deg, var(--primary), var(--secondary));\n  color: white;\n  box-shadow: var(--shadow-sm);\n}\n\n\
+    .btn--primary:hover {\n  background: linear-gradient(135deg, var(--secondary), var(--primary));\n  transform: translateY(-1px);\n\
+    \  box-shadow: var(--shadow-md);\n}\n\n/* ============================================\n   SPECIAL EFFECTS FOR SPECIFIC\
+    \ THEMES\n   ============================================ */\n\n/* Cyberpunk text glow effect */\n[data-theme=\"cyberpunk\"\
+    ] .section-title,\n[data-theme=\"cyberpunk\"] .app-title {\n  text-shadow: 0 0 10px var(--primary);\n}\n\n[data-theme=\"\
+    cyberpunk\"] .action-btn:hover {\n  box-shadow: 0 0 15px var(--primary), var(--shadow-md);\n}\n\n/* Aurora flowing animation\
+    \ */\n[data-theme=\"aurora\"] body {\n  animation: aurora-flow 15s ease-in-out infinite;\n}\n\n@keyframes aurora-flow\
+    \ {\n  0%, 100% {\n    background: radial-gradient(circle at 20% 20%, #1a0933 0%, #0F0524 100%);\n  }\n  50% {\n    background:\
+    \ radial-gradient(circle at 80% 80%, #1a0933 0%, #0F0524 100%);\n  }\n}\n\n/* Neumorphism pressed effect */\n[data-theme=\"\
+    neomorphism\"] .action-btn:active {\n  box-shadow: inset -2px -2px 5px rgba(255,255,255,0.7), inset 2px 2px 5px rgba(0,0,0,0.15);\n\
+    }\n\n/* ============================================\n   RESPONSIVE DESIGN\n   ============================================\
+    \ */\n\n@media (max-width: 480px) {\n  .app-header {\n    padding: 16px 20px;\n  }\n\n  .app-title {\n    font-size: 1.25rem;\n\
+    \  }\n\n  .theme-footer {\n    flex-direction: column;\n    gap: 10px;\n  }\n\n  .theme-dropdown {\n    width: 100%;\n\
+    \  }\n\n  .section-card {\n    padding: 16px;\n  }\n\n  .action-btn {\n    padding: 10px 14px;\n    min-height: 44px;\n\
+    \    font-size: 0.85rem;\n  }\n\n  .btn-icon {\n    width: 18px;\n    height: 18px;\n  }\n}\n\n@media (min-width: 768px)\
+    \ {\n  .app-container {\n    max-width: 480px;\n  }\n}\n\n/* ============================================\n   ACCESSIBILITY\
+    \ & ANIMATIONS\n   ============================================ */\n\n/* Focus visible for keyboard navigation */\n*:focus-visible\
+    \ {\n  outline: 2px solid var(--primary);\n  outline-offset: 2px;\n}\n\n/* Reduced motion for accessibility */\n@media\
+    \ (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    animation-duration: 0.01ms !important;\n \
+    \   animation-iteration-count: 1 !important;\n    transition-duration: 0.01ms !important;\n  }\n}\n\n/* Custom scrollbar\
+    \ */\n::-webkit-scrollbar {\n  width: 8px;\n  height: 8px;\n}\n\n::-webkit-scrollbar-track {\n  background: var(--card-bg);\n\
+    }\n\n::-webkit-scrollbar-thumb {\n  background: var(--card-border);\n  border-radius: 4px;\n}\n\n::-webkit-scrollbar-thumb:hover\
+    \ {\n  background: var(--text-muted);\n}\n"
+  language: css
+libraries: 'https://appsforoffice.microsoft.com/lib/1/hosted/office.js
+
+  @types/office-js
+
+
+  office-ui-fabric-core@11.1.0/dist/css/fabric.min.css
+
+  office-ui-fabric-js@1.5.0/dist/css/fabric.components.min.css
+
+
+  core-js@2.4.1/client/core.min.js
+
+  @types/core-js
+
+
+  jquery@3.1.1
+
+  @types/jquery@3.3.1
+
+  '
